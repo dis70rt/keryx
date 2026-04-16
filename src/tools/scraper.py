@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
+from utils.human_behavior import simulated_mouse_move, human_scroll
 
 class LinkedinScraper:
     def __init__(self, auth_file: str = "data/auth_state.json", headless: bool = None):
@@ -14,48 +15,6 @@ class LinkedinScraper:
         else:
             self.headless = headless
 
-    async def _simulated_mouse_move(self, page):
-        """Simulate realistic, non-linear mouse movements."""
-        start_x = random.randint(100, 800)
-        start_y = random.randint(100, 500)
-        target_x = random.randint(200, 900)
-        target_y = random.randint(200, 800)
-        
-        steps = random.randint(10, 20)
-        for i in range(steps):
-            t = i / steps
-            current_x = start_x + (target_x - start_x) * t + random.uniform(-15, 15)
-            current_y = start_y + (target_y - start_y) * t + random.uniform(-15, 15)
-            await page.mouse.move(current_x, current_y)
-            await asyncio.sleep(random.uniform(0.01, 0.05))
-        
-        await page.mouse.move(target_x, target_y)
-
-    async def _human_scroll(self, page, max_scrolls=5):
-        """Scrolls down page progressively to trigger lazy loading."""
-        try:
-            total_height = await page.evaluate("document.body.scrollHeight")
-        except:
-            total_height = 3000
-            
-        current_scroll = 0
-        scroll_count = 0
-        
-        while current_scroll < total_height and scroll_count < max_scrolls:
-            scroll_step = random.randint(400, 800)
-            current_scroll += scroll_step
-            scroll_count += 1
-            
-            await self._simulated_mouse_move(page)
-            await page.mouse.wheel(delta_x=0, delta_y=scroll_step)
-            await asyncio.sleep(random.uniform(1.0, 2.5))
-            
-            try:
-                new_height = await page.evaluate("document.body.scrollHeight")
-                total_height = new_height
-            except:
-                pass
-
     async def _click_see_more(self, page):
         """Finds and clicks 'See more' to expand text."""
         try:
@@ -64,7 +23,7 @@ class LinkedinScraper:
                 buttons = await page.locator(loc).all()
                 for button in buttons:
                     if await button.is_visible():
-                        await self._simulated_mouse_move(page)
+                        await simulated_mouse_move(page)
                         await button.click()
                         await asyncio.sleep(random.uniform(1.0, 2.0))
         except Exception:
@@ -94,11 +53,11 @@ class LinkedinScraper:
         """Navigates to a specific subpage, safely cleans it, and extracts the core text."""
         print(f"Fetching [{section_name}] -> {url} ...")
         await page.goto(url)
-        await self._simulated_mouse_move(page)
+        await simulated_mouse_move(page)
         await asyncio.sleep(random.uniform(2.0, 3.5))
         
         max_scrolls = 6 if deep_scroll else 3
-        await self._human_scroll(page, max_scrolls=max_scrolls)
+        await human_scroll(page, max_scrolls=max_scrolls)
         await self._click_see_more(page)
         
         print(f"Cleaning UI noise for {section_name}...")
