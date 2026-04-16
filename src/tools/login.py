@@ -2,7 +2,7 @@ import asyncio
 import os
 from pathlib import Path
 from playwright.async_api import async_playwright
-from playwright_stealth import stealth_async
+from playwright_stealth import Stealth
 
 async def login_and_save_state(auth_file: str = "data/auth_state.json"):
     """
@@ -12,28 +12,34 @@ async def login_and_save_state(auth_file: str = "data/auth_state.json"):
     """
     Path(auth_file).parent.mkdir(parents=True, exist_ok=True)
     
-    print("Starting Playwright for manual authentication...")
+    print("Starting Playwright with persistent context...")
     async with async_playwright() as p:
-        # We always want headful for manual login
-        browser = await p.chromium.launch(headless=False)
-        context = await browser.new_context()
-        page = await context.new_page()
+        # Use a local directory for user data to look more like a real browser
+        user_data_dir = "/tmp/linkedin_profile"
+        context = await p.chromium.launch_persistent_context(
+            user_data_dir,
+            headless=False,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox"
+            ]
+        )
+        page = context.pages[0] if context.pages else await context.new_page()
         
-        # Apply stealth to evade basic bot detection even during login
-        await stealth_async(page)
+        # Apply stealth
+        await Stealth().apply_stealth_async(page)
         
         await page.goto("https://www.linkedin.com/login")
-        print(">>> Please log in using the browser window. <<<")
-        print("Waiting for you to reach the LinkedIn feed...")
+        print(">>> Please log in manually. <<<")
         
-        # Wait indefinitely for the feed page which indicates successful login
-        await page.wait_for_url("**/feed/*", timeout=0)
-        
-        # Save state
-        await context.storage_state(path=auth_file)
-        print(f"Login successful. Session state saved to '{auth_file}'")
-        
-        await browser.close()
+        # Wait for feed
+        try:
+            await page.wait_for_url("**/feed/*", timeout=0)
+            # Save state to our shared file
+            await context.storage_state(path=auth_file)
+            print(f"Login successful. Session saved to '{auth_file}'")
+        finally:
+            await context.close()
 
 if __name__ == "__main__":
     asyncio.run(login_and_save_state())
