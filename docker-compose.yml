@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  agent:
+    build: .
+    # Mount data folder to persist auth_state.json
+    # Mount src folder to allow live-reloading of agent code
+    volumes:
+      - ./data:/app/data
+      - ./src:/app/src
+    environment:
+      - HEADLESS=true
+    network_mode: bridge
