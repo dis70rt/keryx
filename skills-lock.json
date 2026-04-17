@@ -15,6 +15,21 @@
       "source": "JuliusBrussee/caveman",
       "sourceType": "github",
       "computedHash": "05c97bc3120108acd0b80bdef7fb4fa7c224ba83c8d384ccbc97f92e8a065918"
+    },
+    "pydantic": {
+      "source": "L-1124/QQMusicApi",
+      "sourceType": "github",
+      "computedHash": "c4dd4b84d11b23dda62c4bd2fd855b4aae626b56802b039849d5e754df623c42"
+    },
+    "python-standards": {
+      "source": "L-1124/QQMusicApi",
+      "sourceType": "github",
+      "computedHash": "35da3ed8061c5b06e533034417a6a36d4c0bf48934a354c9c4a50a1ab24f3113"
+    },
+    "uv-package-manager": {
+      "source": "L-1124/QQMusicApi",
+      "sourceType": "github",
+      "computedHash": "bfc94c79d97081b4dfad7ac6d95cddf1a5b7392719910d281c4e68cb4531ed76"
     }
   }
 }

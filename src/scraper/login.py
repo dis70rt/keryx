@@ -2,7 +2,6 @@ import asyncio
 from pathlib import Path
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
-from utils.human_behavior import simulated_mouse_move
 
 async def login_and_save_state(auth_file: str = "data/auth_state.json"):
     """

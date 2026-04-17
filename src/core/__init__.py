@@ -1,1 +1,1 @@
-"""Core module for outreach data storage and schemas."""
+"""Core module: configuration, models, LLM client, state management, and workflow."""
