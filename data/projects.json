@@ -1,0 +1,5 @@
+{
+  "Keryx": "AI-powered LinkedIn outreach pipeline that scrapes profiles with Playwright stealth, extracts structured data via LLM, and generates hyper-personalized connection notes and DMs using LangGraph orchestration with fault-tolerant SQLite caching.",
+  "Bluppi": "Synchronized music streaming app utilizing distributed clock synchronization over gRPC in Golang. Handles real-time audio stream coordination across multiple clients with sub-10ms drift tolerance.",
+  "WizFlow": "Real-time workflow automation engine built with event-driven architecture. Won 2nd Place at Nutanix Hackathon. Features drag-and-drop DAG builder with live execution monitoring."
+}
