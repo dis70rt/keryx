@@ -1,122 +1,75 @@
-import sys
 from pathlib import Path
-from pydantic import BaseModel, Field
-from typing import Optional, Any
-
-# Add the 'src' directory to the path so we can import 'core'
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
-from core.models import TargetProfile, SenderContext
-from core.llm_client import create_llm
 
-# --- Copywriter Output Model ---
-class DraftedMessage(BaseModel):
-    subject_line: Optional[str] = Field(description="A short, catchy subject line (leave blank if the platform is LinkedIn DM).")
-    message_body: str = Field(description="The complete, finalized outreach message, strictly under 100 words.")
-    word_count: int = Field(description="The exact word count of the message body (to verify adherence to the limit).")
+from src.core.llm_client import create_llm
+from src.core.models import GeneratedMessages, SenderContext, TargetProfile
+
 
 class CopywriterAgent:
-    def __init__(self):
+    def __init__(self) -> None:
         self.llm = create_llm()
-        
-        # Load the external markdown prompt
         prompt_path = Path(__file__).resolve().parent.parent / "prompts" / "copywriter_system.md"
         if not prompt_path.exists():
             raise FileNotFoundError(f"Missing prompt file at: {prompt_path}")
-            
         self.system_prompt = prompt_path.read_text(encoding="utf-8")
 
-    def draft_message(
-        self, 
-        target_profile: TargetProfile, 
+    def draft_messages(
+        self,
+        target_profile: TargetProfile,
         sender_context: SenderContext,
-        selected_angle: Any,  # Using Any to accept the OutreachAngle dict or Pydantic model
-        platform: str = "LinkedIn"
-    ) -> DraftedMessage:
-        """
-        Drafts the final outreach message based on the selected angle.
-        """
-        structured_llm = self.llm.with_structured_output(DraftedMessage)
-        
+        selected_angle: Any,
+        platform: str = "LinkedIn",
+    ) -> GeneratedMessages:
+        """Draft both a connection note and a DM message in a single LLM call."""
+        structured_llm = self.llm.with_structured_output(GeneratedMessages)
+
         prompt = ChatPromptTemplate.from_messages([
             ("system", self.system_prompt),
-            ("human", """
-            PLATFORM: {platform}
-            
-            TARGET CONTEXT:
-            Name: {target_name}
-            Title: {target_title}
-            Communication Style: {target_style}
-            
-            SENDER CONTEXT (Ask Type): {sender_ask}
-            
-            SELECTED ANGLE & HOOK:
-            {angle_json}
-            """)
+            ("human", """PLATFORM: {platform}
+
+TARGET CONTEXT:
+Name: {target_name}
+Title: {target_title}
+Communication Style: {target_style}
+
+SENDER CONTEXT:
+Name: {sender_name}
+Status: {sender_status}
+Ask Type: {sender_ask}
+
+SENDER RESUME:
+{resume_context}
+
+SENDER PROJECTS:
+{projects_context}
+
+SELECTED ANGLE & HOOK:
+{angle_json}
+
+Generate EXACTLY two outputs:
+1. connection_note: A short, punchy LinkedIn connection request note. STRICT MAX 300 characters. Make it personal and compelling.
+2. dm_message: A longer, highly personalized direct message requesting a backend engineering internship. ~150 words. Reference specific things from the target's profile and your own projects."""),
         ])
-        
+
         chain = prompt | structured_llm
-        print(f"Drafting final {platform} message...")
-        
-        # Extract angle data whether it's a dict or a Pydantic object
+        print("  → Drafting connection note + DM message...")
+
         if hasattr(selected_angle, "model_dump_json"):
             angle_formatted = selected_angle.model_dump_json(indent=2)
         else:
             angle_formatted = str(selected_angle)
-            
+
         return chain.invoke({
             "platform": platform,
             "target_name": f"{target_profile.first_name} {target_profile.last_name}",
             "target_title": target_profile.current_title,
             "target_style": target_profile.communication_style,
+            "sender_name": sender_context.sender_name,
+            "sender_status": sender_context.sender_current_status,
             "sender_ask": sender_context.ask_type,
-            "angle_json": angle_formatted
+            "resume_context": sender_context.resume_text or "No resume provided.",
+            "projects_context": sender_context.projects_context or "No project context provided.",
+            "angle_json": angle_formatted,
         })
-
-# --- Example Usage for Testing ---
-if __name__ == "__main__":
-    from dotenv import load_dotenv
-    load_dotenv()
-    
-    # Mocking data to test the Copywriter directly
-    # (In Production, these come from your previous agents)
-    mock_target = TargetProfile(
-        first_name="Edward",
-        last_name="Sun",
-        current_title="Brand & Web Designer / Content Creator",
-        professional_summary="Christian-led brand designer who recently went independent.",
-        past_experience=[],
-        skills_and_endorsements=[],
-        recent_activity_themes=[],
-        inferred_interests=[],
-        communication_style="Casual, authentic, and highly relatable. Uses emojis."
-    )
-    
-    mock_sender = SenderContext(
-        sender_name="Dis70rt",
-        sender_current_status="Founder of AI Growth Agency",
-        sender_core_competencies=[],
-        sender_highlight_projects=[],
-        ask_type="Collaboration/Networking"
-    )
-    
-    mock_angle = {
-        "angle_name": "Entrepreneurship Leap",
-        "psychological_reasoning": "He recently quit his job to go solo and posted about the fears associated with it. Validating that courage builds instant rapport.",
-        "hook_sentence": "Edward, massive respect for taking the leap into full-time self-employment—I know exactly how terrifying that first month is."
-    }
-    
-    copywriter = CopywriterAgent()
-    draft = copywriter.draft_message(
-        target_profile=mock_target,
-        sender_context=mock_sender,
-        selected_angle=mock_angle,
-        platform="LinkedIn DM"
-    )
-    
-    print("\n--- FINAL MESSAGE ---")
-    if draft.subject_line:
-        print(f"Subject: {draft.subject_line}\n")
-    print(draft.message_body)
-    print(f"\n(Word Count: {draft.word_count})")

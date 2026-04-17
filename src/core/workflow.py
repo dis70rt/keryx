@@ -1,156 +1,151 @@
-import sys
-from pathlib import Path
-from typing import TypedDict, Optional, Dict, Any, List
+from typing import Any, TypedDict
 
-# Add the 'src' directory to the path 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+from langgraph.graph import END, StateGraph
 
-from langgraph.graph import StateGraph, END
-from core.models import TargetProfile, CompanyProfile, SenderContext
-from agents.profile_extract import ProfileExtractionAgent
-from agents.analyst import AnalystAgent
-from agents.matchmaker import MatchmakerAgent
-from agents.copywriter import CopywriterAgent
-from agents.reviewer import ReviewerAgent
+from src.agents.copywriter import CopywriterAgent
+from src.agents.matchmaker import MatchmakerAgent
+from src.agents.profile_extract import ProfileExtractionAgent
+from src.agents.reviewer import ReviewerAgent
+from src.core.models import CompanyProfile, SenderContext, TargetProfile
 
-# --- 1. Define the State ---
-# This dictionary gets passed from node to node.
+
 class GraphState(TypedDict):
     raw_profile_text: str
-    raw_company_text: Optional[str]
+    raw_company_text: str | None
     platform: str
-    
+
     sender_context: SenderContext
-    
-    target_profile: Optional[TargetProfile]
-    company_profile: Optional[CompanyProfile]
-    
-    analyst_insights: Optional[Dict[str, Any]]
-    outreach_angles: Optional[List[Dict[str, str]]]
-    selected_angle: Optional[Dict[str, str]]
-    
-    drafted_message: Optional[Dict[str, Any]]
-    review_feedback: Optional[str]
+
+    target_profile: TargetProfile | None
+    company_profile: CompanyProfile | None
+
+    analyst_insights: dict[str, Any] | None
+    outreach_angles: list[dict[str, str]] | None
+    selected_angle: dict[str, str] | None
+
+    connection_note: str | None
+    dm_message: str | None
+    drafted_messages: dict[str, str] | None
+
+    review_feedback: str | None
     revision_count: int
-    final_passed_message: Optional[Dict[str, Any]]
+    final_passed: bool
 
 
-# --- 2. Initialize Agents ---
-# We initialize them once outside the nodes to save overhead
 extractor = ProfileExtractionAgent()
-analyst = AnalystAgent()
 matchmaker = MatchmakerAgent()
 copywriter = CopywriterAgent()
 reviewer = ReviewerAgent()
 
 
-# --- 3. Define the Nodes ---
-
-def extract_node(state: GraphState) -> GraphState:
-    print("Graph: [Extracting Profiles]")
+def extract_node(state: GraphState) -> dict:
+    print("▸ [Extractor] Parsing profiles...")
     t_prof = extractor.extract_target_profile(state["raw_profile_text"])
-    
+
     c_prof = None
     if state.get("raw_company_text"):
         c_prof = extractor.extract_company_profile(state["raw_company_text"])
-        
-    return {
-        "target_profile": t_prof, 
-        "company_profile": c_prof
+
+    insights = {
+        "professional_summary": t_prof.professional_summary,
+        "communication_style": t_prof.communication_style,
+        "inferred_interests": t_prof.inferred_interests,
+        "recent_themes": [t.model_dump() for t in t_prof.recent_activity_themes],
     }
 
-def analyst_node(state: GraphState) -> GraphState:
-    print("Graph: [Analyzing Psychology]")
-    insights = analyst.analyze(state["target_profile"], state.get("company_profile"))
-    return {"analyst_insights": insights.model_dump()}
+    return {
+        "target_profile": t_prof,
+        "company_profile": c_prof,
+        "analyst_insights": insights,
+    }
 
-def matchmaker_node(state: GraphState) -> GraphState:
-    print("Graph: [Generating Angles]")
+
+def matchmaker_node(state: GraphState) -> dict:
+    print("▸ [Matchmaker] Generating angles...")
     result = matchmaker.generate_angles(
         target_profile=state["target_profile"],
         sender_context=state["sender_context"],
         analyst_insights=state["analyst_insights"],
-        company_profile=state.get("company_profile")
+        company_profile=state.get("company_profile"),
     )
-    # For now, we auto-select the first angle generated.
     angles = [a.model_dump() for a in result.selected_angles]
     return {
         "outreach_angles": angles,
-        "selected_angle": angles[0] if angles else None
+        "selected_angle": angles[0] if angles else None,
     }
 
-def copywriter_node(state: GraphState) -> GraphState:
-    print(f"Graph: [Drafting Message] (Revision count: {state.get('revision_count', 0)})")
-    
-    # If the critic failed the last iteration, we should technically inject the feedback 
-    # into the copywriter. For simplicity, the critic provides a suggested_revision 
-    # which we can handle in the critic node, but the copywriter will try again here.
-    
-    draft = copywriter.draft_message(
+
+def copywriter_node(state: GraphState) -> dict:
+    revision = state.get("revision_count", 0)
+    print(f"▸ [Copywriter] Drafting messages (revision #{revision})...")
+
+    result = copywriter.draft_messages(
         target_profile=state["target_profile"],
         sender_context=state["sender_context"],
         selected_angle=state["selected_angle"],
-        platform=state["platform"]
+        platform=state["platform"],
     )
-    
+
     return {
-        "drafted_message": draft.model_dump(),
-        "revision_count": state.get('revision_count', 0) + 1
+        "connection_note": result.connection_note,
+        "dm_message": result.dm_message,
+        "drafted_messages": result.model_dump(),
+        "revision_count": revision + 1,
     }
 
-def reviewer_node(state: GraphState) -> GraphState:
-    print("Graph: [Reviewing Draft]")
+
+def reviewer_node(state: GraphState) -> dict:
+    print("▸ [Reviewer] Quality check...")
     result = reviewer.review(
-        drafted_message=state["drafted_message"],
+        drafted_messages=state["drafted_messages"],
         target_context=state["target_profile"].model_dump(),
-        angle_used=state["selected_angle"]
+        angle_used=state["selected_angle"],
     )
-    
+
     if result.passes_criteria:
-        print("-> Critic PASSED the message.")
-        return {"final_passed_message": state["drafted_message"]}
-    else:
-        print("-> Critic FAILED the message:")
-        print(f"   Feedback: {result.critique}")
-        return {"review_feedback": result.critique}
+        print("  ✓ Approved")
+        return {"final_passed": True}
 
-# --- 4. Define the Edge Logic (Routing) ---
+    print(f"  ✗ Rejected: {result.critique}")
+
+    updates: dict[str, Any] = {"review_feedback": result.critique}
+    if result.suggested_connection_note:
+        updates["connection_note"] = result.suggested_connection_note
+    if result.suggested_dm_message:
+        updates["dm_message"] = result.suggested_dm_message
+    return updates
+
+
 def should_continue(state: GraphState) -> str:
-    """Decides if we are done or if we need to draft again."""
-    maximum_revisions = 3
-    
-    if state.get("final_passed_message"):
-        return "end" # Passed! Output it.
-    elif state.get("revision_count", 0) >= maximum_revisions:
-        print("-> Reached max revisions. Forcing approval.")
+    max_revisions = 3
+    if state.get("final_passed"):
         return "end"
-    else:
-        return "retry" # Failed, go back to copywriter
+    if state.get("revision_count", 0) >= max_revisions:
+        print("  ⚠ Max revisions reached. Forcing approval.")
+        return "end"
+    return "retry"
 
-# --- 5. Build the Graph ---
-workflow = StateGraph(GraphState)
 
-workflow.add_node("Extractor", extract_node)
-workflow.add_node("Analyst", analyst_node)
-workflow.add_node("Matchmaker", matchmaker_node)
-workflow.add_node("Copywriter", copywriter_node)
-workflow.add_node("Reviewer", reviewer_node)
+def build_workflow() -> StateGraph:
+    workflow = StateGraph(GraphState)
 
-# Linear flow up until the copywriter
-workflow.set_entry_point("Extractor")
-workflow.add_edge("Extractor", "Analyst")
-workflow.add_edge("Analyst", "Matchmaker")
-workflow.add_edge("Matchmaker", "Copywriter")
-workflow.add_edge("Copywriter", "Reviewer")
+    workflow.add_node("Extractor", extract_node)
+    workflow.add_node("Matchmaker", matchmaker_node)
+    workflow.add_node("Copywriter", copywriter_node)
+    workflow.add_node("Reviewer", reviewer_node)
 
-# Conditional loop from reviewer back to copywriter
-workflow.add_conditional_edges(
-    "Reviewer",
-    should_continue,
-    {
-        "end": END,
-        "retry": "Copywriter"
-    }
-)
+    workflow.set_entry_point("Extractor")
+    workflow.add_edge("Extractor", "Matchmaker")
+    workflow.add_edge("Matchmaker", "Copywriter")
+    workflow.add_edge("Copywriter", "Reviewer")
 
-app = workflow.compile()
+    workflow.add_conditional_edges(
+        "Reviewer",
+        should_continue,
+        {"end": END, "retry": "Copywriter"},
+    )
+
+    return workflow
+
+
+app = build_workflow().compile()

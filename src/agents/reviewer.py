@@ -1,99 +1,86 @@
-import sys
 from pathlib import Path
-from pydantic import BaseModel, Field
-from typing import Optional, Any
+from typing import Any
 
-# Add the 'src' directory to the path so we can import 'core'
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+from pydantic import BaseModel, Field
 
 from langchain_core.prompts import ChatPromptTemplate
-from core.llm_client import create_llm
 
-# --- Reviewer Output Model ---
+from src.core.llm_client import create_llm
+
+
 class ReviewResult(BaseModel):
-    passes_criteria: bool = Field(description="True ONLY if the message is flawless, human-sounding, and ready to send. False if it needs revision.")
-    critique: str = Field(description="Detailed explanation of what is wrong (e.g., 'Too long', 'Sounds like AI', 'CTA is too demanding') or why it passed.")
-    suggested_revision: Optional[str] = Field(description="If it failed, provide a heavily revised, polished version that fixes the issues.")
+    passes_criteria: bool = Field(
+        description="True ONLY if both messages are flawless and ready to send"
+    )
+    critique: str = Field(
+        description="What's wrong or why it passed"
+    )
+    suggested_connection_note: str | None = Field(
+        None, description="Revised connection note if failed"
+    )
+    suggested_dm_message: str | None = Field(
+        None, description="Revised DM message if failed"
+    )
+
 
 class ReviewerAgent:
-    def __init__(self):
-        # We might want a lower temperature for the reviewer so it's strictly analytical
+    def __init__(self) -> None:
         self.llm = create_llm()
-        # Optionally override temperature if your llm_client supports it:
-        # self.llm.temperature = 0.2
-        
         prompt_path = Path(__file__).resolve().parent.parent / "prompts" / "reviewer_system.md"
         if not prompt_path.exists():
             raise FileNotFoundError(f"Missing prompt file at: {prompt_path}")
-            
         self.system_prompt = prompt_path.read_text(encoding="utf-8")
 
     def review(
-        self, 
-        drafted_message: Any, # Accepts dict or DraftedMessage object
+        self,
+        drafted_messages: Any,
         target_context: Any,
-        angle_used: Any
+        angle_used: Any,
     ) -> ReviewResult:
-        """
-        Critiques a drafted message and decides if it is ready to send.
-        """
+        """Review both the connection note and DM message for quality."""
         structured_llm = self.llm.with_structured_output(ReviewResult)
-        
+
         prompt = ChatPromptTemplate.from_messages([
             ("system", self.system_prompt),
-            ("human", """
-            Please review the following draft.
-            
-            TARGET CONTEXT:
-            {target_json}
-            
-            ANGLE SUPPOSED TO BE USED:
-            {angle_json}
-            
-            DRAFTED MESSAGE TO REVIEW:
-            {draft_json}
-            """)
+            ("human", """Review the following drafts:
+
+TARGET CONTEXT:
+{target_json}
+
+ANGLE USED:
+{angle_json}
+
+CONNECTION NOTE:
+{connection_note}
+
+DM MESSAGE:
+{dm_message}
+
+Verify:
+1. Connection note is under 300 characters and punchy
+2. DM message is ~150 words, personalized, and human-sounding
+3. No AI clichés or corporate jargon
+4. CTA is low-friction"""),
         ])
-        
+
         chain = prompt | structured_llm
-        print("Running Quality Assurance Check...")
-        
-        # Format inputs safely
-        def safe_format(obj):
+        print("  → Running quality review...")
+
+        def safe_format(obj: Any) -> str:
             if hasattr(obj, "model_dump_json"):
                 return obj.model_dump_json(indent=2)
             return str(obj)
-            
+
+        if isinstance(drafted_messages, dict):
+            conn_note = drafted_messages.get("connection_note", "")
+            dm_msg = drafted_messages.get("dm_message", "")
+        else:
+            conn_note = getattr(drafted_messages, "connection_note", "")
+            dm_msg = getattr(drafted_messages, "dm_message", "")
+
         return chain.invoke({
             "target_json": safe_format(target_context),
             "angle_json": safe_format(angle_used),
-            "draft_json": safe_format(drafted_message)
+            "connection_note": conn_note,
+            "dm_message": dm_msg,
         })
-
-# --- Example Usage for Testing ---
-if __name__ == "__main__":
-    from dotenv import load_dotenv
-    load_dotenv()
-    
-    # 1. Provide a BAD draft to see if the Critic catches it
-    bad_draft = {
-        "subject_line": "Synergizing our core competencies",
-        "message_body": "I hope this email finds you well. I was deeply impressed by your tapestry of experience on LinkedIn. As you transition into entrepreneurship, I believe our AI services can unlock transformative growth for your endeavors. Would you be open to a 45-minute discovery call next Tuesday to delve into how we can align our synergies?",
-        "word_count": 55
-    }
-    
-    mock_angle = "Entrepreneurship Leap: Acknowledge the fear of his recent transition to self-employment."
-    mock_target = {"name": "Edward", "communication_style": "Casual"}
-    
-    reviewer = ReviewerAgent()
-    result = reviewer.review(
-        drafted_message=bad_draft,
-        target_context=mock_target,
-        angle_used=mock_angle
-    )
-    
-    print("\n--- REVIEW RESULTS ---")
-    print(f"PASSED: {result.passes_criteria}")
-    print(f"CRITIQUE: {result.critique}")
-    if result.suggested_revision:
-        print(f"\nSUGGESTED REVISION:\n{result.suggested_revision}")
