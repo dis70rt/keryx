@@ -1,10 +1,26 @@
 services:
   agent:
-    build: .
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
     volumes:
       - ./data:/app/data
-      - ./src:/app/src
-      - ./.env:/app/.env
-    environment:
-      - HEADLESS=true
-    network_mode: bridge
+    restart: unless-stopped
+    depends_on:
+      - ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Start ollama, wait 5 seconds, pull gemma, then keep container running
+    entrypoint: >
+      sh -c "ollama serve & sleep 5 && ollama pull gemma && wait"
+
+volumes:
+  ollama_data:

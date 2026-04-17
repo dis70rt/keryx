@@ -1,22 +1,34 @@
-FROM python:3.12-slim
+# Stage 1: Build
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
+WORKDIR /app
 
-ENV PYTHONUNBUFFERED=1
-ENV HEADLESS=true
-ENV DEBIAN_FRONTEND=noninteractive
+# Install dependencies into .venv
+COPY pyproject.toml uv.lock* ./
+RUN uv sync --frozen --no-dev --no-install-project
+
+# Copy source and sync project
+COPY src/ ./src/
+COPY pipeline.py ./
+RUN uv sync --frozen --no-dev
+
+# Stage 2: Runtime
+FROM python:3.12-slim-bookworm
+
+ENV PYTHONUNBUFFERED=1 \
+    HEADLESS=true \
+    DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Copy built virtual environment and source code
+COPY --from=builder /app /app
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+# Put virtual environment in PATH
+ENV PATH="/app/.venv/bin:$PATH"
 
-COPY pyproject.toml uv.lock* ./
-COPY . .
+# Install Playwright browsers and OS dependencies
+RUN playwright install --with-deps chromium
 
-RUN uv sync --frozen --no-dev
-
-RUN uv run playwright install --with-deps chromium
-
-CMD ["uv", "run", "python", "pipeline.py"]
+CMD ["python", "pipeline.py"]
