@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.7
     ollama_base_url: str = "http://localhost:11434"
 
+    admin_email: str
     google_sheets_cred_path: Path = Field(default=Path("data/google_credentials.json"))
     target_sheet_name: str = "Keryx Outreach"
     sheet_tab_targets: str = "Targets"

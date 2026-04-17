@@ -11,6 +11,8 @@ RUN uv sync --frozen --no-dev --no-install-project
 # Copy source and sync project
 COPY src/ ./src/
 COPY pipeline.py ./
+COPY pyproject.toml uv.lock README.md ./
+
 RUN uv sync --frozen --no-dev
 
 # Stage 2: Runtime

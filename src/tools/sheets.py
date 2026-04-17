@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import gspread
+from gspread.exceptions import SpreadsheetNotFound
 from oauth2client.service_account import ServiceAccountCredentials
 
 from src.core.config import Settings
@@ -21,11 +22,40 @@ class SheetsManager:
             str(settings.google_sheets_cred_path), SCOPES
         )
         client = gspread.authorize(creds)
-        self.spreadsheet = client.open(settings.target_sheet_name)
+
+        self.admin_email = settings.admin_email
+        try:
+            self.spreadsheet = client.open(settings.target_sheet_name)
+            print(f"Connected to existing sheet: {settings.target_sheet_name}")
+            
+        except SpreadsheetNotFound:
+            print(f"Sheet not found. Creating '{settings.target_sheet_name}'...")
+            self.spreadsheet = client.create(settings.target_sheet_name)
+            
+            # Share it with the email from your .env
+            self.spreadsheet.share(self.admin_email, perm_type='user', role='writer')
+            print(f"Sheet created and shared with {self.admin_email}")
+
+            # Setup the required tabs and headers
+            self._initialize_new_sheet()
 
         self.targets_ws = self.spreadsheet.worksheet(settings.sheet_tab_targets)
         self.notes_ws = self.spreadsheet.worksheet(settings.sheet_tab_notes)
         self.dms_ws = self.spreadsheet.worksheet(settings.sheet_tab_dms)
+    
+    def _initialize_new_sheet(self) -> None:
+        """Sets up the 3 tabs and their headers in a brand-new spreadsheet."""
+        
+        sheet1 = self.spreadsheet.sheet1
+        sheet1.update_title(self.settings.sheet_tab_targets)
+        
+        sheet1.append_row(["LinkedIn URL", "Name", "Misc Info", "Status", "Processed At"])
+
+        notes_ws = self.spreadsheet.add_worksheet(title=self.settings.sheet_tab_notes, rows="100", cols="20")
+        notes_ws.append_row(["LinkedIn URL", "Name", "Connection Note", "Char Count"])
+
+        dms_ws = self.spreadsheet.add_worksheet(title=self.settings.sheet_tab_dms, rows="100", cols="20")
+        dms_ws.append_row(["LinkedIn URL", "Name", "DM Message", "Word Count"])
 
     def fetch_pending_targets(self) -> list[dict[str, str]]:
         """Fetch rows from Targets sheet where Status is empty or 'Pending'."""
