@@ -18,12 +18,16 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.7
     ollama_base_url: str = "http://localhost:11434"
 
-    admin_email: str
+    admin_email: str = "example@example.com"
     google_sheets_cred_path: Path = Field(default=Path("data/google_credentials.json"))
     target_sheet_name: str = "Keryx Outreach"
     sheet_tab_targets: str = "Targets"
     sheet_tab_notes: str = "Connection Notes"
     sheet_tab_dms: str = "DM Messages"
+
+    # Sender data
+    sender_linkedin_url: str
+    sender_profile_cache_path: Path = Field(default=Path("data/sender_profile.json"))
 
     resume_path: Path = Field(default=Path("data/resume.tex"))
     projects_path: Path = Field(default=Path("data/projects.json"))

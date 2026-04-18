@@ -1,4 +1,5 @@
 import asyncio
+import json
 import random
 from pathlib import Path
 
@@ -73,6 +74,19 @@ class LinkedinScraper:
             text = await page.locator("body").inner_text()
 
         return text.strip()
+
+    async def get_sender_profile(self, sender_url: str, cache_path: Path) -> dict[str, str]:
+        """Fetch sender's own LinkedIn profile, using local cache if available."""
+        if cache_path.exists():
+            print(f"  ► Loading sender profile from cache: {cache_path}")
+            return json.loads(cache_path.read_text(encoding="utf-8"))
+
+        print(f"  ► Sender profile cache not found. Scraping target: {sender_url}")
+        data = await self.scrape_full_profile(sender_url)
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(data, indent=4, ensure_ascii=False), encoding="utf-8")
+        print(f"  ✓ Cached sender profile to: {cache_path}")
+        return data
 
     async def scrape_full_profile(self, profile_url: str) -> dict[str, str]:
         """Scrape all sections of a LinkedIn personal profile."""
