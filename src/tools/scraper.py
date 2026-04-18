@@ -77,9 +77,9 @@ class LinkedinScraper:
     async def scrape_full_profile(self, profile_url: str) -> dict[str, str]:
         """Scrape all sections of a LinkedIn personal profile."""
         if not self.auth_file.exists():
-            raise FileNotFoundError(
-                f"Auth file missing at {self.auth_file}. Run login.py first."
-            )
+            print(f"  ► Auth file missing at {self.auth_file}. Starting manual login...")
+            from src.tools.login import login_and_save_state
+            await login_and_save_state(self.auth_file)
 
         if not profile_url.endswith("/"):
             profile_url += "/"
@@ -128,9 +128,9 @@ class LinkedinScraper:
     async def scrape_full_company(self, company_url: str) -> dict[str, str]:
         """Scrape About and Posts from a LinkedIn company page."""
         if not self.auth_file.exists():
-            raise FileNotFoundError(
-                f"Auth file missing at {self.auth_file}. Run login.py first."
-            )
+            print(f"  ► Auth file missing at {self.auth_file}. Starting manual login...")
+            from src.tools.login import login_and_save_state
+            await login_and_save_state(self.auth_file)
 
         if not company_url.endswith("/"):
             company_url += "/"

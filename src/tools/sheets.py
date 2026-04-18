@@ -49,13 +49,13 @@ class SheetsManager:
         sheet1 = self.spreadsheet.sheet1
         sheet1.update_title(self.settings.sheet_tab_targets)
         
-        sheet1.append_row(["LinkedIn URL", "Name", "Misc Info", "Status", "Processed At"])
+        sheet1.append_row(["User Linkedin URL", "Company Linkedin URL", "Name", "Misc Info", "Status", "Processed At"])
 
         notes_ws = self.spreadsheet.add_worksheet(title=self.settings.sheet_tab_notes, rows="100", cols="20")
-        notes_ws.append_row(["LinkedIn URL", "Name", "Connection Note", "Char Count"])
+        notes_ws.append_row(["User Linkedin URL", "Company Linkedin URL", "Name", "Connection Note", "Char Count"])
 
         dms_ws = self.spreadsheet.add_worksheet(title=self.settings.sheet_tab_dms, rows="100", cols="20")
-        dms_ws.append_row(["LinkedIn URL", "Name", "DM Message", "Word Count"])
+        dms_ws.append_row(["User Linkedin URL", "Company Linkedin URL", "Name", "DM Message", "Word Count"])
 
     def fetch_pending_targets(self) -> list[dict[str, str]]:
         """Fetch rows from Targets sheet where Status is empty or 'Pending'."""
@@ -80,27 +80,29 @@ class SheetsManager:
         targets_records = self.targets_ws.get_all_records()
         url_to_row: dict[str, int] = {}
         for idx, record in enumerate(targets_records):
-            url_to_row[str(record.get("LinkedIn URL", "")).strip()] = idx + 2
+            url_to_row[str(record.get("User Linkedin URL", "")).strip()] = idx + 2
 
         targets_batch: list[gspread.cell.Cell] = []
         notes_rows: list[list[str]] = []
         dms_rows: list[list[str]] = []
 
         for result in results:
-            url = result["linkedin_url"]
+            url = result["user_linkedin_url"]
+            company_url = result.get("company_linkedin_url", "")
             row_num = url_to_row.get(url)
 
             if row_num:
                 targets_batch.append(
-                    gspread.cell.Cell(row=row_num, col=4, value=result.get("status", "Done"))
+                    gspread.cell.Cell(row=row_num, col=5, value=result.get("status", "Done"))
                 )
                 processed_at = result.get("processed_at", "")
                 targets_batch.append(
-                    gspread.cell.Cell(row=row_num, col=5, value=processed_at)
+                    gspread.cell.Cell(row=row_num, col=6, value=processed_at)
                 )
 
             notes_rows.append([
                 url,
+                company_url,
                 result.get("name", ""),
                 result.get("connection_note", ""),
                 str(result.get("char_count", "")),
@@ -108,6 +110,7 @@ class SheetsManager:
 
             dms_rows.append([
                 url,
+                company_url,
                 result.get("name", ""),
                 result.get("dm_message", ""),
                 str(result.get("word_count", "")),
