@@ -21,6 +21,7 @@ class CopywriterAgent:
         sender_context: SenderContext,
         selected_angle: Any,
         platform: str = "LinkedIn",
+        relevant_context: str | None = None,
     ) -> GeneratedMessages:
         """Draft both a connection note and a DM message in a single LLM call."""
         structured_llm = self.llm.with_structured_output(GeneratedMessages)
@@ -39,11 +40,8 @@ Name: {sender_name}
 Status: {sender_status}
 Ask Type: {sender_ask}
 
-SENDER RESUME:
-{resume_context}
-
-SENDER PROJECTS:
-{projects_context}
+MOST RELEVANT SENDER BACKGROUND:
+{relevant_context}
 
 SELECTED ANGLE & HOOK:
 {angle_json}
@@ -61,6 +59,14 @@ Generate EXACTLY two outputs:
         else:
             angle_formatted = str(selected_angle)
 
+        # Build the context: use RAG-retrieved context if available, otherwise fall back
+        if relevant_context:
+            context_block = relevant_context
+        else:
+            resume = sender_context.resume_text or "No resume provided."
+            projects = sender_context.projects_context or "No project context provided."
+            context_block = f"RESUME:\n{resume}\n\nPROJECTS:\n{projects}"
+
         return chain.invoke({
             "platform": platform,
             "target_name": f"{target_profile.first_name} {target_profile.last_name}",
@@ -69,7 +75,6 @@ Generate EXACTLY two outputs:
             "sender_name": sender_context.sender_name,
             "sender_status": sender_context.sender_current_status,
             "sender_ask": sender_context.ask_type,
-            "resume_context": sender_context.resume_text or "No resume provided.",
-            "projects_context": sender_context.projects_context or "No project context provided.",
+            "relevant_context": context_block,
             "angle_json": angle_formatted,
         })

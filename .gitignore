@@ -19,6 +19,7 @@ data/google_credentials.json
 data/raw_extracted.*
 data/company_extracted.*
 data/snapshots/
+data/chroma_db/
 
 # IDE
 .agents

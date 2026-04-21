@@ -37,6 +37,7 @@ class Settings(BaseSettings):
 
     cache_db_path: Path = Field(default=Path("data/cache.db"))
     snapshot_dir: Path = Field(default=Path("data/snapshots"))
+    chroma_db_path: Path = Field(default=Path("data/chroma_db"))
 
 
 def load_settings() -> Settings:

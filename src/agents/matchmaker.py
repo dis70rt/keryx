@@ -40,12 +40,13 @@ class MatchmakerAgent:
         sender_context: SenderContext,
         analyst_insights: Any,
         company_profile: CompanyProfile | None = None,
+        past_hooks: str | None = None,
     ) -> MatchmakerResult:
         structured_llm = self.llm.with_structured_output(MatchmakerResult)
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", self.system_prompt),
-            ("human", "TARGET PROFILE:\n{target_json}\n\nTARGET INSIGHTS:\n{insights_json}\n\nSENDER CONTEXT:\n{sender_json}\n\nCOMPANY PROFILE:\n{company_json}"),
+            ("human", "TARGET PROFILE:\n{target_json}\n\nTARGET INSIGHTS:\n{insights_json}\n\nSENDER CONTEXT:\n{sender_json}\n\nCOMPANY PROFILE:\n{company_json}\n\n{past_hooks_section}"),
         ])
 
         chain = prompt | structured_llm
@@ -65,4 +66,5 @@ class MatchmakerAgent:
                 if company_profile
                 else "No company data available."
             ),
+            "past_hooks_section": past_hooks or "No past hook data available yet.",
         })

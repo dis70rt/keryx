@@ -12,6 +12,8 @@ from src.tools.scraper import LinkedinScraper
 from src.tools.sheets import SheetsManager
 from src.tools.cleaner import clean_scraped_data
 from src.tools.snapshot import SnapshotManager
+from src.tools.sender_rag import SenderRAG
+from src.tools.memory import EpisodicMemory
 
 
 def build_sender_context(settings) -> SenderContext:
@@ -36,6 +38,8 @@ def run_ai_pipeline(
     raw_profile_text: str,
     sender_context: SenderContext,
     raw_company_text: str | None = None,
+    sender_rag: SenderRAG | None = None,
+    episodic_memory: EpisodicMemory | None = None,
 ) -> dict[str, str]:
     """Execute the LangGraph pipeline and extract final messages."""
     initial_state = {
@@ -44,6 +48,8 @@ def run_ai_pipeline(
         "platform": "LinkedIn",
         "sender_context": sender_context,
         "revision_count": 0,
+        "sender_rag": sender_rag,
+        "episodic_memory": episodic_memory,
     }
 
     final_state = None
@@ -76,6 +82,8 @@ async def process_target(
     sender_context: SenderContext,
     state_mgr: StateManager,
     snapshot_mgr: SnapshotManager,
+    sender_rag: SenderRAG | None = None,
+    episodic_memory: EpisodicMemory | None = None,
 ) -> dict[str, str] | None:
     """Scrape a single profile and run the AI pipeline.
 
@@ -131,7 +139,11 @@ async def process_target(
 
         # ── AI pipeline ────────────────────────────────────────
         print("▸ Running AI pipeline...")
-        result = run_ai_pipeline(raw_text, sender_context, raw_company_text)
+        result = run_ai_pipeline(
+            raw_text, sender_context, raw_company_text,
+            sender_rag=sender_rag,
+            episodic_memory=episodic_memory,
+        )
 
         state_mgr.mark_success(
             url, result["connection_note"], result["dm_message"]
@@ -164,6 +176,18 @@ async def main() -> None:
         auth_file=settings.auth_state_path, headless=settings.headless
     )
 
+    # ── RAG: Build sender context index ──────────────────────
+    print("\n▸ Building RAG index for sender context...")
+    sender_rag = SenderRAG(settings.chroma_db_path)
+    chunk_count = sender_rag.build_index(
+        resume_text=sender_context.resume_text,
+        projects_text=sender_context.projects_context,
+    )
+    print(f"  ✓ RAG index ready ({chunk_count} chunks)")
+
+    # ── Episodic Memory ──────────────────────────────────────
+    episodic_memory = EpisodicMemory(settings.cache_db_path)
+
     try:
         sheets = SheetsManager(settings)
         pending_targets = sheets.fetch_pending_targets()
@@ -190,7 +214,10 @@ async def main() -> None:
         if not company_url:
             company_url = None
 
-        result = await process_target(url, company_url, scraper, sender_context, state_mgr, snapshot_mgr)
+        result = await process_target(
+            url, company_url, scraper, sender_context, state_mgr, snapshot_mgr,
+            sender_rag=sender_rag, episodic_memory=episodic_memory,
+        )
 
         if result:
             now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")

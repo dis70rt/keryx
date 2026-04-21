@@ -7,6 +7,8 @@ from src.agents.matchmaker import MatchmakerAgent
 from src.agents.profile_extract import ProfileExtractionAgent
 from src.agents.reviewer import ReviewerAgent
 from src.core.models import CompanyProfile, SenderContext, TargetProfile
+from src.tools.sender_rag import SenderRAG
+from src.tools.memory import EpisodicMemory
 
 
 class GraphState(TypedDict):
@@ -22,6 +24,14 @@ class GraphState(TypedDict):
     analyst_insights: dict[str, Any] | None
     outreach_angles: list[dict[str, str]] | None
     selected_angle: dict[str, str] | None
+
+    # RAG: dynamically retrieved sender context
+    relevant_sender_context: str | None
+    sender_rag: Any  # SenderRAG instance (not serializable, passed by ref)
+
+    # Episodic Memory
+    past_successful_hooks: str | None
+    episodic_memory: Any  # EpisodicMemory instance
 
     connection_note: str | None
     dm_message: str | None
@@ -60,6 +70,66 @@ def extract_node(state: GraphState) -> dict:
     }
 
 
+def retriever_node(state: GraphState) -> dict:
+    """RAG node: retrieve only the most relevant sender context for this target."""
+    print("▸ [Retriever] Finding relevant sender context...")
+    sender_rag: SenderRAG | None = state.get("sender_rag")
+
+    if not sender_rag:
+        print("  ⚠ No RAG index available, using full sender context.")
+        return {"relevant_sender_context": None}
+
+    # Build a query from the target's extracted data
+    target = state.get("target_profile")
+    company = state.get("company_profile")
+
+    query_parts: list[str] = []
+    if target:
+        query_parts.extend(target.skills_and_endorsements[:5])
+        if target.current_title:
+            query_parts.append(target.current_title)
+    if company:
+        query_parts.extend(company.core_tech_stack[:5])
+        if company.industry_and_domain:
+            query_parts.append(company.industry_and_domain)
+
+    query = ", ".join(query_parts) if query_parts else "software engineering"
+
+    retrieved = sender_rag.retrieve(query, k=3)
+    print(f"  ✓ Retrieved {len(retrieved.splitlines())} relevant context chunks")
+    return {"relevant_sender_context": retrieved}
+
+
+def memory_recall_node(state: GraphState) -> dict:
+    """Episodic Memory recall: fetch past successful hooks for this target type."""
+    print("▸ [Memory] Recalling past successful hooks...")
+    memory: EpisodicMemory | None = state.get("episodic_memory")
+
+    if not memory:
+        print("  ⚠ No episodic memory available.")
+        return {"past_successful_hooks": None}
+
+    target = state.get("target_profile")
+    company = state.get("company_profile")
+
+    industry = ""
+    title = ""
+    if company and company.industry_and_domain:
+        industry = company.industry_and_domain
+    if target and target.current_title:
+        title = target.current_title
+
+    hooks = memory.recall(target_industry=industry, target_title=title, limit=3)
+    formatted = memory.format_for_prompt(hooks)
+
+    if hooks:
+        print(f"  ✓ Found {len(hooks)} relevant past hooks")
+    else:
+        print("  → No past hooks yet (cold start)")
+
+    return {"past_successful_hooks": formatted if formatted else None}
+
+
 def matchmaker_node(state: GraphState) -> dict:
     print("▸ [Matchmaker] Generating angles...")
     result = matchmaker.generate_angles(
@@ -67,6 +137,7 @@ def matchmaker_node(state: GraphState) -> dict:
         sender_context=state["sender_context"],
         analyst_insights=state["analyst_insights"],
         company_profile=state.get("company_profile"),
+        past_hooks=state.get("past_successful_hooks"),
     )
     angles = [a.model_dump() for a in result.selected_angles]
     return {
@@ -84,6 +155,7 @@ def copywriter_node(state: GraphState) -> dict:
         sender_context=state["sender_context"],
         selected_angle=state["selected_angle"],
         platform=state["platform"],
+        relevant_context=state.get("relevant_sender_context"),
     )
 
     return {
@@ -116,13 +188,39 @@ def reviewer_node(state: GraphState) -> dict:
     return updates
 
 
+def memory_store_node(state: GraphState) -> dict:
+    """Store the approved hook into episodic memory for future recall."""
+    memory: EpisodicMemory | None = state.get("episodic_memory")
+    if not memory or not state.get("final_passed"):
+        return {}
+
+    target = state.get("target_profile")
+    company = state.get("company_profile")
+    angle = state.get("selected_angle", {})
+
+    industry = company.industry_and_domain if company else "Unknown"
+    title = target.current_title if target else "Unknown"
+    name = f"{target.first_name} {target.last_name}" if target else "Unknown"
+
+    memory.record_success(
+        target_industry=industry,
+        target_title=title,
+        target_name=name,
+        hook_name=angle.get("angle_name", ""),
+        hook_reasoning=angle.get("psychological_reasoning", ""),
+        hook_sentence=angle.get("hook_sentence", ""),
+    )
+    print("  ✓ Hook stored in episodic memory")
+    return {}
+
+
 def should_continue(state: GraphState) -> str:
     max_revisions = 3
     if state.get("final_passed"):
-        return "end"
+        return "store_memory"
     if state.get("revision_count", 0) >= max_revisions:
         print("  ⚠ Max revisions reached. Forcing approval.")
-        return "end"
+        return "store_memory"
     return "retry"
 
 
@@ -130,20 +228,28 @@ def build_workflow() -> StateGraph:
     workflow = StateGraph(GraphState)
 
     workflow.add_node("Extractor", extract_node)
+    workflow.add_node("Retriever", retriever_node)
+    workflow.add_node("MemoryRecall", memory_recall_node)
     workflow.add_node("Matchmaker", matchmaker_node)
     workflow.add_node("Copywriter", copywriter_node)
     workflow.add_node("Reviewer", reviewer_node)
+    workflow.add_node("MemoryStore", memory_store_node)
 
+    # Linear flow: Extract → Retrieve → Recall → Match → Copy → Review
     workflow.set_entry_point("Extractor")
-    workflow.add_edge("Extractor", "Matchmaker")
+    workflow.add_edge("Extractor", "Retriever")
+    workflow.add_edge("Retriever", "MemoryRecall")
+    workflow.add_edge("MemoryRecall", "Matchmaker")
     workflow.add_edge("Matchmaker", "Copywriter")
     workflow.add_edge("Copywriter", "Reviewer")
 
+    # Conditional: Reviewer → MemoryStore (approved/max) or → Copywriter (retry)
     workflow.add_conditional_edges(
         "Reviewer",
         should_continue,
-        {"end": END, "retry": "Copywriter"},
+        {"store_memory": "MemoryStore", "retry": "Copywriter"},
     )
+    workflow.add_edge("MemoryStore", END)
 
     return workflow
 
