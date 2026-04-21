@@ -257,7 +257,7 @@ def memory_store_node(state: GraphState) -> dict:
     return {}
 
 def should_continue(state: GraphState) -> str:
-    max_revisions = 3
+    max_revisions = 2
     if state.get("final_passed"):
         return "store_memory"
     if state.get("revision_count", 0) >= max_revisions:
