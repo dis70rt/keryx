@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ExperienceItem(BaseModel):
@@ -36,6 +36,37 @@ class TargetProfile(BaseModel):
     communication_style: str = Field(
         default="", description="E.g., Casual, academic, direct, promotional"
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def sanitize_lists(cls, data: dict) -> dict:
+        """Strip invalid entries from lists to survive LLM hallucinations.
+
+        The local model sometimes stuffs a garbage string into the
+        past_experience list instead of a proper ExperienceItem dict.
+        This validator silently drops those entries.
+        """
+        if isinstance(data, dict):
+            # Drop non-dict entries from past_experience
+            raw_exp = data.get("past_experience", [])
+            if isinstance(raw_exp, list):
+                data["past_experience"] = [
+                    item for item in raw_exp if isinstance(item, dict)
+                ][:5]  # hard cap at 5 most recent
+
+            # Cap skills list
+            raw_skills = data.get("skills_and_endorsements", [])
+            if isinstance(raw_skills, list):
+                data["skills_and_endorsements"] = [
+                    s for s in raw_skills if isinstance(s, str) and len(s) < 100
+                ][:10]
+
+            # Cap activity themes
+            raw_themes = data.get("recent_activity_themes", [])
+            if isinstance(raw_themes, list):
+                data["recent_activity_themes"] = raw_themes[:5]
+
+        return data
 
 
 class CompanyProfile(BaseModel):

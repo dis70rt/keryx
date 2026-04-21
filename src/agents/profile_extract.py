@@ -24,7 +24,10 @@ class ProfileExtractionAgent:
             2. Synthesize 'professional_summary' from their About section and overall vibe.
             3. Infer 'communication_style' from how they write posts, about section, and headlines.
             4. Extract 'recent_activity_themes' by analyzing recent post topics.
-            5. Clean up any messy text before outputting."""),
+            5. Clean up any messy text before outputting.
+            6. For 'past_experience', extract ONLY the 5 most recent roles. Ignore older positions.
+            7. For 'skills_and_endorsements', list at most 10 skills.
+            8. Keep your JSON output SHORT. Do not repeat field names or values."""),
             ("human", """Here is the raw scraped LinkedIn profile data:
 
 {raw_text}

@@ -50,11 +50,26 @@ reviewer = ReviewerAgent()
 
 def extract_node(state: GraphState) -> dict:
     print("▸ [Extractor] Parsing profiles...")
-    t_prof = extractor.extract_target_profile(state["raw_profile_text"])
+
+    try:
+        t_prof = extractor.extract_target_profile(state["raw_profile_text"])
+    except Exception as e:
+        print(f"  ⚠ Target extraction failed: {e}")
+        # Build a minimal skeleton so the pipeline can still attempt outreach
+        from src.core.models import TargetProfile
+        t_prof = TargetProfile(
+            first_name="Unknown",
+            last_name="",
+            current_title="Professional",
+            professional_summary="Could not extract profile details.",
+        )
 
     c_prof = None
     if state.get("raw_company_text"):
-        c_prof = extractor.extract_company_profile(state["raw_company_text"])
+        try:
+            c_prof = extractor.extract_company_profile(state["raw_company_text"])
+        except Exception as e:
+            print(f"  ⚠ Company extraction failed: {e}")
 
     insights = {
         "professional_summary": t_prof.professional_summary,
