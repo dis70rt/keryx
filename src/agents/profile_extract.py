@@ -40,11 +40,12 @@ CRITICAL: You MUST return ONLY valid JSON. Do NOT include markdown blocks (like 
         ])
 
         chain = prompt | self.llm | parser
-        print("  → Extracting target profile...")
-        return chain.invoke({
-            "raw_text": raw_profile_text,
-            "format_instructions": parser.get_format_instructions()
-        })
+        from src.core.logger import logger
+        with logger.status("Extracting target profile..."):
+            return chain.invoke({
+                "raw_text": raw_profile_text,
+                "format_instructions": parser.get_format_instructions()
+            })
 
     def extract_company_profile(self, raw_company_text: str) -> CompanyProfile:
         parser = PydanticOutputParser(pydantic_object=CompanyProfile)
@@ -67,8 +68,9 @@ CRITICAL: You MUST return ONLY valid JSON. Do NOT include markdown blocks (like 
         ])
 
         chain = prompt | self.llm | parser
-        print("  → Extracting company profile...")
-        return chain.invoke({
-            "raw_text": raw_company_text,
-            "format_instructions": parser.get_format_instructions()
-        })
+        from src.core.logger import logger
+        with logger.status("Extracting company profile..."):
+            return chain.invoke({
+                "raw_text": raw_company_text,
+                "format_instructions": parser.get_format_instructions()
+            })

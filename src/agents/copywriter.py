@@ -55,12 +55,12 @@ Generate EXACTLY two outputs:
         ])
 
         chain = prompt | structured_llm
-        print("  → Drafting connection note + DM message...")
-
-        if hasattr(selected_angle, "model_dump_json"):
-            angle_formatted = selected_angle.model_dump_json(indent=2)
-        else:
-            angle_formatted = str(selected_angle)
+        from src.core.logger import logger
+        with logger.status("Drafting connection note + DM message..."):
+            if hasattr(selected_angle, "model_dump_json"):
+                angle_formatted = selected_angle.model_dump_json(indent=2)
+            else:
+                angle_formatted = str(selected_angle)
 
         # Build the context: use RAG-retrieved context if available, otherwise fall back
         if relevant_context:

@@ -6,6 +6,7 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 
+from src.core.logger import logger
 from src.tools.human_behavior import human_scroll, simulated_mouse_move
 
 
@@ -53,8 +54,8 @@ class LinkedinScraper:
     async def _extract_subpage(
         self, page, url: str, section_name: str, deep_scroll: bool = False
     ) -> str:
-        print(f"  → Fetching [{section_name}] {url}")
-        await page.goto(url)
+        logger.sub_step(f"Fetching [{section_name}] {url}")
+        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
         await simulated_mouse_move(page)
         await asyncio.sleep(random.uniform(2.0, 3.5))
 
@@ -78,20 +79,20 @@ class LinkedinScraper:
     async def get_sender_profile(self, sender_url: str, cache_path: Path) -> dict[str, str]:
         """Fetch sender's own LinkedIn profile, using local cache if available."""
         if cache_path.exists():
-            print(f"  ► Loading sender profile from cache: {cache_path}")
+            logger.sub_step(f"Loading sender profile from cache: {cache_path}")
             return json.loads(cache_path.read_text(encoding="utf-8"))
 
-        print(f"  ► Sender profile cache not found. Scraping target: {sender_url}")
+        logger.sub_step(f"Sender profile cache not found. Scraping target: {sender_url}")
         data = await self.scrape_full_profile(sender_url)
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(json.dumps(data, indent=4, ensure_ascii=False), encoding="utf-8")
-        print(f"  ✓ Cached sender profile to: {cache_path}")
+        logger.success(f"Cached sender profile to: {cache_path}")
         return data
 
     async def scrape_full_profile(self, profile_url: str) -> dict[str, str]:
         """Scrape all sections of a LinkedIn personal profile."""
         if not self.auth_file.exists():
-            print(f"  ► Auth file missing at {self.auth_file}. Starting manual login...")
+            logger.warn(f"Auth file missing at {self.auth_file}. Starting manual login...")
             from src.tools.login import login_and_save_state
             await login_and_save_state(self.auth_file)
 
@@ -133,7 +134,7 @@ class LinkedinScraper:
                     if text:
                         extracted_data[section] = text
                 except Exception as e:
-                    print(f"  ✗ Failed to fetch {section}: {e}")
+                    logger.error(f"Failed to fetch {section}: {e}")
                     extracted_data[section] = f"ERROR: {e}"
 
             await browser.close()
@@ -142,7 +143,7 @@ class LinkedinScraper:
     async def scrape_full_company(self, company_url: str) -> dict[str, str]:
         """Scrape About and Posts from a LinkedIn company page."""
         if not self.auth_file.exists():
-            print(f"  ► Auth file missing at {self.auth_file}. Starting manual login...")
+            logger.warn(f"Auth file missing at {self.auth_file}. Starting manual login...")
             from src.tools.login import login_and_save_state
             await login_and_save_state(self.auth_file)
 
@@ -174,7 +175,7 @@ class LinkedinScraper:
                     if text:
                         extracted_data[section] = text
                 except Exception as e:
-                    print(f"  ✗ Failed to fetch {section}: {e}")
+                    logger.error(f"Failed to fetch {section}: {e}")
                     extracted_data[section] = f"ERROR: {e}"
 
             await browser.close()

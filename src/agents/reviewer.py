@@ -64,7 +64,6 @@ Verify:
         ])
 
         chain = prompt | structured_llm
-        print("  → Running quality review...")
 
         def safe_format(obj: Any) -> str:
             if hasattr(obj, "model_dump_json"):
@@ -78,9 +77,11 @@ Verify:
             conn_note = getattr(drafted_messages, "connection_note", "")
             dm_msg = getattr(drafted_messages, "dm_message", "")
 
-        return chain.invoke({
-            "target_json": safe_format(target_context),
-            "angle_json": safe_format(angle_used),
-            "connection_note": conn_note,
-            "dm_message": dm_msg,
-        })
+        from src.core.logger import logger
+        with logger.status("Running quality review..."):
+            return chain.invoke({
+                "target_json": safe_format(target_context),
+                "angle_json": safe_format(angle_used),
+                "connection_note": conn_note,
+                "dm_message": dm_msg,
+            })

@@ -5,6 +5,7 @@ from gspread.exceptions import SpreadsheetNotFound
 from oauth2client.service_account import ServiceAccountCredentials
 
 from src.core.config import Settings
+from src.core.logger import logger
 
 
 SCOPES = [
@@ -26,15 +27,15 @@ class SheetsManager:
         self.admin_email = settings.admin_email
         try:
             self.spreadsheet = client.open(settings.target_sheet_name)
-            print(f"Connected to existing sheet: {settings.target_sheet_name}")
+            logger.info(f"Connected to existing sheet: {settings.target_sheet_name}")
             
         except SpreadsheetNotFound:
-            print(f"Sheet not found. Creating '{settings.target_sheet_name}'...")
+            logger.info(f"Sheet not found. Creating '{settings.target_sheet_name}'...")
             self.spreadsheet = client.create(settings.target_sheet_name)
             
             # Share it with the email from your .env
             self.spreadsheet.share(self.admin_email, perm_type='user', role='writer')
-            print(f"Sheet created and shared with {self.admin_email}")
+            logger.success(f"Sheet created and shared with {self.admin_email}")
 
             # Setup the required tabs and headers
             self._initialize_new_sheet()

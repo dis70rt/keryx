@@ -14,6 +14,7 @@ from src.tools.cleaner import clean_scraped_data
 from src.tools.snapshot import SnapshotManager
 from src.tools.sender_rag import SenderRAG
 from src.tools.memory import EpisodicMemory
+from src.core.logger import logger
 
 
 def build_sender_context(settings) -> SenderContext:
@@ -78,39 +79,37 @@ async def process_target(
     scraping entirely.
     """
     if state_mgr.is_processed(url):
-        print(f"  ⏭ Already processed: {url}")
+        logger.sub_step(f"Already processed: {url}")
         cached = state_mgr.get_cached_result(url)
         return cached
 
-    print(f"\n{'='*60}")
-    print(f"Processing: {url}")
-    print(f"{'='*60}")
+    logger.title(f"Processing: {url}")
 
     try:
         # ── Profile scraping (with snapshot cache) ──────────────
         if snapshot_mgr.has_profile(url, company_url):
-            print("▸ Loading profile from snapshot...")
+            logger.step("Loading profile from snapshot")
             scraped = snapshot_mgr.load_profile(url, company_url)
         else:
-            print("▸ Scraping profile...")
+            logger.step("Scraping profile")
             scraped = await scraper.scrape_full_profile(url)
             saved_to = snapshot_mgr.save_profile(url, company_url, scraped)
-            print(f"  ✓ Snapshot saved → {saved_to}")
+            logger.success(f"Snapshot saved → {saved_to}")
 
         # ── Company scraping (with snapshot cache) ─────────────
         scraped_company = None
         if company_url:
             if snapshot_mgr.has_company(company_url):
-                print(f"▸ Loading company profile from snapshot...")
+                logger.step("Loading company profile from snapshot")
                 scraped_company = snapshot_mgr.load_company(company_url)
             else:
-                print(f"▸ Scraping company profile: {company_url}")
+                logger.step(f"Scraping company profile: {company_url}")
                 scraped_company = await scraper.scrape_full_company(company_url)
                 saved_to = snapshot_mgr.save_company(company_url, scraped_company)
-                print(f"  ✓ Snapshot saved → {saved_to}")
+                logger.success(f"Snapshot saved → {saved_to}")
 
         # ── Algorithmic cleaning (strip LinkedIn UI noise) ─────
-        print("▸ Cleaning scraped data...")
+        logger.step("Cleaning scraped data")
         cleaned_profile = clean_scraped_data(scraped, max_total_chars=6000)
         raw_text = "\n".join(
             [f"--- {k} ---\n{v}" for k, v in cleaned_profile.items()]
@@ -124,7 +123,7 @@ async def process_target(
             )
 
         # ── AI pipeline ────────────────────────────────────────
-        print("▸ Running AI pipeline...")
+        logger.step("Running AI pipeline")
         result = run_ai_pipeline(
             raw_text, sender_context, raw_company_text,
             sender_rag=sender_rag,
@@ -135,14 +134,15 @@ async def process_target(
             url, result["connection_note"], result["dm_message"]
         )
 
-        print(f"\n  ✓ Connection Note ({len(result['connection_note'])} chars):")
+        logger.blank()
+        logger.success(f"Connection Note ({len(result['connection_note'])} chars):")
         print(f"    {result['connection_note'][:100]}...")
-        print(f"  ✓ DM Message ({len(result['dm_message'].split())} words)")
+        logger.success(f"DM Message ({len(result['dm_message'].split())} words)")
 
         return result
 
     except Exception as e:
-        print(f"  ✗ Failed: {e}")
+        logger.error(f"Failed: {e}")
         state_mgr.mark_failed(url, str(e))
         return None
 
@@ -151,9 +151,7 @@ async def main() -> None:
     load_dotenv()
     settings = load_settings()
 
-    print("╔══════════════════════════════════════╗")
-    print("║       KERYX OUTREACH PIPELINE        ║")
-    print("╚══════════════════════════════════════╝")
+    logger.title("KERYX OUTREACH PIPELINE")
 
     sender_context = build_sender_context(settings)
     state_mgr = StateManager(settings.cache_db_path)
@@ -163,13 +161,14 @@ async def main() -> None:
     )
 
     # ── RAG: Build sender context index ──────────────────────
-    print("\n▸ Building RAG index for sender context...")
+    logger.step("Building RAG index for sender context")
     sender_rag = SenderRAG(settings.chroma_db_path)
-    chunk_count = sender_rag.build_index(
-        resume_text=sender_context.resume_text,
-        projects_text=sender_context.projects_context,
-    )
-    print(f"  ✓ RAG index ready ({chunk_count} chunks)")
+    with logger.status("Generating embeddings..."):
+        chunk_count = sender_rag.build_index(
+            resume_text=sender_context.resume_text,
+            projects_text=sender_context.projects_context,
+        )
+    logger.success(f"RAG index ready ({chunk_count} chunks)")
 
     # ── Episodic Memory ──────────────────────────────────────
     episodic_memory = EpisodicMemory(settings.cache_db_path)
@@ -177,9 +176,9 @@ async def main() -> None:
     try:
         sheets = SheetsManager(settings)
         pending_targets = sheets.fetch_pending_targets()
-        print(f"\n→ Found {len(pending_targets)} pending targets in Google Sheets")
+        logger.info(f"Found {len(pending_targets)} pending targets in Google Sheets")
     except Exception as e:
-        print(f"\n⚠ Google Sheets unavailable ({e}). Falling back to manual mode.")
+        logger.warn(f"Google Sheets unavailable ({e}). Falling back to manual mode.")
         url = input("Enter LinkedIn Profile URL: ").strip()
         if not url:
             print("No URL provided. Exiting.")
@@ -220,13 +219,13 @@ async def main() -> None:
             })
 
     if sheets and batch_results:
-        print(f"\n→ Batch updating {len(batch_results)} results to Google Sheets...")
-        sheets.batch_update_results(batch_results)
-        print("  ✓ Sheets updated")
+        logger.blank()
+        logger.info(f"Batch updating {len(batch_results)} results to Google Sheets...")
+        with logger.status("Updating sheets..."):
+            sheets.batch_update_results(batch_results)
+        logger.success("Sheets updated")
 
-    print(f"\n{'='*60}")
-    print(f"Pipeline complete. Processed {len(batch_results)} targets.")
-    print(f"{'='*60}")
+    logger.title(f"Pipeline complete. Processed {len(batch_results)} targets.")
 
 
 if __name__ == "__main__":

@@ -50,21 +50,21 @@ class MatchmakerAgent:
         ])
 
         chain = prompt | structured_llm
-        print("  → Generating outreach angles...")
+        from src.core.logger import logger
+        with logger.status("Generating outreach angles..."):
+            if hasattr(analyst_insights, "model_dump_json"):
+                insights_formatted = analyst_insights.model_dump_json(indent=2)
+            else:
+                insights_formatted = json.dumps(analyst_insights, indent=2)
 
-        if hasattr(analyst_insights, "model_dump_json"):
-            insights_formatted = analyst_insights.model_dump_json(indent=2)
-        else:
-            insights_formatted = json.dumps(analyst_insights, indent=2)
-
-        return chain.invoke({
-            "target_json": target_profile.model_dump_json(indent=2),
-            "insights_json": insights_formatted,
-            "sender_json": sender_context.model_dump_json(indent=2),
-            "company_json": (
-                company_profile.model_dump_json(indent=2)
-                if company_profile
-                else "No company data available."
-            ),
-            "past_hooks_section": past_hooks or "No past hook data available yet.",
-        })
+            return chain.invoke({
+                "target_json": target_profile.model_dump_json(indent=2),
+                "insights_json": insights_formatted,
+                "sender_json": sender_context.model_dump_json(indent=2),
+                "company_json": (
+                    company_profile.model_dump_json(indent=2)
+                    if company_profile
+                    else "No company data available."
+                ),
+                "past_hooks_section": past_hooks or "No past hook data available yet.",
+            })

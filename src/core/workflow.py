@@ -9,6 +9,7 @@ from src.agents.reviewer import ReviewerAgent
 from src.core.models import CompanyProfile, SenderContext, TargetProfile
 from src.tools.sender_rag import SenderRAG
 from src.tools.memory import EpisodicMemory
+from src.core.logger import logger
 
 
 class GraphState(TypedDict):
@@ -49,12 +50,12 @@ reviewer = ReviewerAgent()
 
 
 def extract_node(state: GraphState) -> dict:
-    print("▸ [Extractor] Parsing profiles...")
+    logger.step("[Extractor] Parsing profiles")
 
     try:
         t_prof = extractor.extract_target_profile(state["raw_profile_text"])
     except Exception as e:
-        print(f"  ⚠ Target extraction failed: {e}")
+        logger.warn(f"Target extraction failed: {e}")
         # Build a minimal skeleton so the pipeline can still attempt outreach
         from src.core.models import TargetProfile
         t_prof = TargetProfile(
@@ -69,7 +70,7 @@ def extract_node(state: GraphState) -> dict:
         try:
             c_prof = extractor.extract_company_profile(state["raw_company_text"])
         except Exception as e:
-            print(f"  ⚠ Company extraction failed: {e}")
+            logger.warn(f"Company extraction failed: {e}")
 
     insights = {
         "professional_summary": t_prof.professional_summary,
@@ -87,11 +88,11 @@ def extract_node(state: GraphState) -> dict:
 
 def retriever_node(state: GraphState) -> dict:
     """RAG node: retrieve only the most relevant sender context for this target."""
-    print("▸ [Retriever] Finding relevant sender context...")
+    logger.step("[Retriever] Finding relevant sender context")
     sender_rag: SenderRAG | None = state.get("sender_rag")
 
     if not sender_rag:
-        print("  ⚠ No RAG index available, using full sender context.")
+        logger.warn("No RAG index available, using full sender context.")
         return {"relevant_sender_context": None}
 
     # Build a query from the target's extracted data
@@ -110,18 +111,20 @@ def retriever_node(state: GraphState) -> dict:
 
     query = ", ".join(query_parts) if query_parts else "software engineering"
 
-    retrieved = sender_rag.retrieve(query, k=3)
-    print(f"  ✓ Retrieved {len(retrieved.splitlines())} relevant context chunks")
+    with logger.status("Querying vector store..."):
+        retrieved = sender_rag.retrieve(query, k=3)
+        
+    logger.success(f"Retrieved {len(retrieved.splitlines())} relevant context chunks")
     return {"relevant_sender_context": retrieved}
 
 
 def memory_recall_node(state: GraphState) -> dict:
     """Episodic Memory recall: fetch past successful hooks for this target type."""
-    print("▸ [Memory] Recalling past successful hooks...")
+    logger.step("[Memory] Recalling past successful hooks")
     memory: EpisodicMemory | None = state.get("episodic_memory")
 
     if not memory:
-        print("  ⚠ No episodic memory available.")
+        logger.warn("No episodic memory available.")
         return {"past_successful_hooks": None}
 
     target = state.get("target_profile")
@@ -134,19 +137,20 @@ def memory_recall_node(state: GraphState) -> dict:
     if target and target.current_title:
         title = target.current_title
 
-    hooks = memory.recall(target_industry=industry, target_title=title, limit=3)
-    formatted = memory.format_for_prompt(hooks)
+    with logger.status("Querying cache.db..."):
+        hooks = memory.recall(target_industry=industry, target_title=title, limit=3)
+        formatted = memory.format_for_prompt(hooks)
 
     if hooks:
-        print(f"  ✓ Found {len(hooks)} relevant past hooks")
+        logger.success(f"Found {len(hooks)} relevant past hooks")
     else:
-        print("  → No past hooks yet (cold start)")
+        logger.sub_step("No past hooks yet (cold start)")
 
     return {"past_successful_hooks": formatted if formatted else None}
 
 
 def matchmaker_node(state: GraphState) -> dict:
-    print("▸ [Matchmaker] Generating angles...")
+    logger.step("[Matchmaker] Generating angles")
     result = matchmaker.generate_angles(
         target_profile=state["target_profile"],
         sender_context=state["sender_context"],
@@ -163,7 +167,7 @@ def matchmaker_node(state: GraphState) -> dict:
 
 def copywriter_node(state: GraphState) -> dict:
     revision = state.get("revision_count", 0)
-    print(f"▸ [Copywriter] Drafting messages (revision #{revision})...")
+    logger.step(f"[Copywriter] Drafting messages (revision #{revision})")
 
     # On retries, pass the Reviewer's feedback so the Copywriter knows WHY
     # the previous draft was rejected, instead of blindly regenerating.
@@ -189,8 +193,8 @@ def copywriter_node(state: GraphState) -> dict:
         # If the LLM produces garbage tokens on a retry, don't crash the
         # whole pipeline.  Fall back to whatever draft is already in state
         # (the Reviewer may have written suggested rewrites).
-        print(f"  ⚠ Copywriter LLM error: {e}")
-        print("  → Falling back to previous draft in state.")
+        logger.warn(f"Copywriter LLM error: {e}")
+        logger.sub_step("Falling back to previous draft in state.")
         return {
             "revision_count": revision + 1,
             "review_feedback": None,  # clear feedback to stop retry loop
@@ -198,7 +202,7 @@ def copywriter_node(state: GraphState) -> dict:
 
 
 def reviewer_node(state: GraphState) -> dict:
-    print("▸ [Reviewer] Quality check...")
+    logger.step("[Reviewer] Quality check")
 
     try:
         result = reviewer.review(
@@ -209,15 +213,15 @@ def reviewer_node(state: GraphState) -> dict:
     except Exception as e:
         # If the Reviewer LLM produces garbage, auto-approve.
         # The draft already passed the Copywriter and is usable.
-        print(f"  ⚠ Reviewer LLM error: {e}")
-        print("  → Auto-approving current draft.")
+        logger.warn(f"Reviewer LLM error: {e}")
+        logger.sub_step("Auto-approving current draft.")
         return {"final_passed": True}
 
     if result.passes_criteria:
-        print("  ✓ Approved")
+        logger.success("Approved")
         return {"final_passed": True}
 
-    print(f"  ✗ Rejected: {result.critique}")
+    logger.error(f"Rejected: {result.critique}")
 
     updates: dict[str, Any] = {"review_feedback": result.critique}
     if result.suggested_connection_note:
@@ -249,16 +253,15 @@ def memory_store_node(state: GraphState) -> dict:
         hook_reasoning=angle.get("psychological_reasoning", ""),
         hook_sentence=angle.get("hook_sentence", ""),
     )
-    print("  ✓ Hook stored in episodic memory")
+    logger.success("Hook stored in episodic memory")
     return {}
-
 
 def should_continue(state: GraphState) -> str:
     max_revisions = 3
     if state.get("final_passed"):
         return "store_memory"
     if state.get("revision_count", 0) >= max_revisions:
-        print("  ⚠ Max revisions reached. Forcing approval.")
+        logger.warn("Max revisions reached. Forcing approval.")
         return "store_memory"
     return "retry"
 
