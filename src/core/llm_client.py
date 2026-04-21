@@ -15,7 +15,7 @@ class LLMProviderInterface(ABC):
 
 class OllamaProvider(LLMProviderInterface):
     def __init__(self) -> None:
-        self.model_name = os.getenv("LLM_MODEL", "gemma")
+        self.model_name = os.getenv("LLM_MODEL", "gemma4:e2b")
         self.base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
         self.temperature = float(os.getenv("LLM_TEMPERATURE", "0.7"))
 
@@ -24,6 +24,8 @@ class OllamaProvider(LLMProviderInterface):
             model=self.model_name,
             base_url=self.base_url,
             temperature=self.temperature,
+            num_ctx=4096,
+            format="json",
         )
 
 

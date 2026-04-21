@@ -2,48 +2,48 @@ from pydantic import BaseModel, Field
 
 
 class ExperienceItem(BaseModel):
-    title: str = Field(description="Job title or role")
-    company: str = Field(description="Company name")
+    title: str = Field(default="", description="Job title or role")
+    company: str = Field(default="", description="Company name")
     duration: str | None = Field(None, description="Time spent in the role")
     key_responsibilities: list[str] = Field(
-        description="Main achievements and duties"
+        default_factory=list, description="Main achievements and duties"
     )
 
 
 class PostSummary(BaseModel):
-    topic: str = Field(description="Core topic of the post")
-    key_takeaway: str = Field(description="Main point the author was making")
-    tone: str = Field(description="Tone: professional, enthusiastic, vulnerable, etc.")
+    topic: str = Field(default="", description="Core topic of the post")
+    key_takeaway: str = Field(default="", description="Main point the author was making")
+    tone: str = Field(default="", description="Tone: professional, enthusiastic, vulnerable, etc.")
 
 
 class TargetProfile(BaseModel):
-    first_name: str
-    last_name: str
-    current_title: str
+    first_name: str = Field(default="")
+    last_name: str = Field(default="")
+    current_title: str = Field(default="")
     location: str | None = None
     professional_summary: str = Field(
-        description="2-3 sentence synthesized summary of their profile"
+        default="", description="2-3 sentence synthesized summary of their profile"
     )
-    past_experience: list[ExperienceItem]
-    skills_and_endorsements: list[str]
+    past_experience: list[ExperienceItem] = Field(default_factory=list)
+    skills_and_endorsements: list[str] = Field(default_factory=list)
     services_offered: list[str] = Field(default_factory=list)
     recent_activity_themes: list[PostSummary] = Field(
-        description="Top themes from recent posts"
+        default_factory=list, description="Top themes from recent posts"
     )
     inferred_interests: list[str] = Field(
-        description="What this person cares about based on profile data"
+        default_factory=list, description="What this person cares about based on profile data"
     )
     communication_style: str = Field(
-        description="E.g., Casual, academic, direct, promotional"
+        default="", description="E.g., Casual, academic, direct, promotional"
     )
 
 
 class CompanyProfile(BaseModel):
-    company_name: str
-    industry_and_domain: str
+    company_name: str = Field(default="")
+    industry_and_domain: str = Field(default="")
     mission_statement: str | None = None
-    recent_company_news_or_launches: list[str]
-    core_tech_stack: list[str]
+    recent_company_news_or_launches: list[str] = Field(default_factory=list)
+    core_tech_stack: list[str] = Field(default_factory=list)
     target_audience: str | None = None
 
 

@@ -10,6 +10,8 @@ from src.core.workflow import app as keryx_pipeline
 from src.tools.context import load_projects, load_resume
 from src.tools.scraper import LinkedinScraper
 from src.tools.sheets import SheetsManager
+from src.tools.cleaner import clean_scraped_data
+from src.tools.snapshot import SnapshotManager
 
 
 def build_sender_context(settings) -> SenderContext:
@@ -33,11 +35,12 @@ def build_sender_context(settings) -> SenderContext:
 def run_ai_pipeline(
     raw_profile_text: str,
     sender_context: SenderContext,
+    raw_company_text: str | None = None,
 ) -> dict[str, str]:
     """Execute the LangGraph pipeline and extract final messages."""
     initial_state = {
         "raw_profile_text": raw_profile_text,
-        "raw_company_text": None,
+        "raw_company_text": raw_company_text,
         "platform": "LinkedIn",
         "sender_context": sender_context,
         "revision_count": 0,
@@ -68,11 +71,18 @@ def run_ai_pipeline(
 
 async def process_target(
     url: str,
+    company_url: str | None,
     scraper: LinkedinScraper,
     sender_context: SenderContext,
     state_mgr: StateManager,
+    snapshot_mgr: SnapshotManager,
 ) -> dict[str, str] | None:
-    """Scrape a single profile and run the AI pipeline."""
+    """Scrape a single profile and run the AI pipeline.
+
+    Scraped data is persisted via *snapshot_mgr* so that a subsequent run
+    (e.g. after an AI-pipeline failure) can skip the expensive Playwright
+    scraping entirely.
+    """
     if state_mgr.is_processed(url):
         print(f"  ⏭ Already processed: {url}")
         cached = state_mgr.get_cached_result(url)
@@ -83,14 +93,45 @@ async def process_target(
     print(f"{'='*60}")
 
     try:
-        print("▸ Scraping profile...")
-        scraped = await scraper.scrape_full_profile(url)
+        # ── Profile scraping (with snapshot cache) ──────────────
+        if snapshot_mgr.has_profile(url, company_url):
+            print("▸ Loading profile from snapshot...")
+            scraped = snapshot_mgr.load_profile(url, company_url)
+        else:
+            print("▸ Scraping profile...")
+            scraped = await scraper.scrape_full_profile(url)
+            saved_to = snapshot_mgr.save_profile(url, company_url, scraped)
+            print(f"  ✓ Snapshot saved → {saved_to}")
+
+        # ── Company scraping (with snapshot cache) ─────────────
+        scraped_company = None
+        if company_url:
+            if snapshot_mgr.has_company(company_url):
+                print(f"▸ Loading company profile from snapshot...")
+                scraped_company = snapshot_mgr.load_company(company_url)
+            else:
+                print(f"▸ Scraping company profile: {company_url}")
+                scraped_company = await scraper.scrape_full_company(company_url)
+                saved_to = snapshot_mgr.save_company(company_url, scraped_company)
+                print(f"  ✓ Snapshot saved → {saved_to}")
+
+        # ── Algorithmic cleaning (strip LinkedIn UI noise) ─────
+        print("▸ Cleaning scraped data...")
+        cleaned_profile = clean_scraped_data(scraped)
         raw_text = "\n".join(
-            [f"--- {k} ---\n{v}" for k, v in scraped.items()]
+            [f"--- {k} ---\n{v}" for k, v in cleaned_profile.items()]
         )
 
+        raw_company_text = None
+        if scraped_company:
+            cleaned_company = clean_scraped_data(scraped_company)
+            raw_company_text = "\n".join(
+                [f"--- {k} ---\n{v}" for k, v in cleaned_company.items()]
+            )
+
+        # ── AI pipeline ────────────────────────────────────────
         print("▸ Running AI pipeline...")
-        result = run_ai_pipeline(raw_text, sender_context)
+        result = run_ai_pipeline(raw_text, sender_context, raw_company_text)
 
         state_mgr.mark_success(
             url, result["connection_note"], result["dm_message"]
@@ -118,6 +159,7 @@ async def main() -> None:
 
     sender_context = build_sender_context(settings)
     state_mgr = StateManager(settings.cache_db_path)
+    snapshot_mgr = SnapshotManager(settings.snapshot_dir)
     scraper = LinkedinScraper(
         auth_file=settings.auth_state_path, headless=settings.headless
     )
@@ -138,18 +180,23 @@ async def main() -> None:
     batch_results: list[dict[str, str]] = []
 
     for target in pending_targets:
-        url = str(target.get("LinkedIn URL", "")).strip()
+        url = str(target.get("User Linkedin URL", "")).strip()
+        company_url = str(target.get("Company Linkedin URL", "")).strip()
         name = str(target.get("Name", "Unknown")).strip()
 
         if not url:
             continue
 
-        result = await process_target(url, scraper, sender_context, state_mgr)
+        if not company_url:
+            company_url = None
+
+        result = await process_target(url, company_url, scraper, sender_context, state_mgr, snapshot_mgr)
 
         if result:
             now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
             batch_results.append({
-                "linkedin_url": url,
+                "user_linkedin_url": url,
+                "company_linkedin_url": company_url if company_url else "",
                 "name": name,
                 "connection_note": result["connection_note"],
                 "dm_message": result["dm_message"],

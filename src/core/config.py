@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     )
 
     llm_provider: str = "ollama"
-    llm_model: str = "gemma"
+    llm_model: str = "gemma4:e2b"
     llm_temperature: float = 0.7
     ollama_base_url: str = "http://localhost:11434"
 
@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     headless: bool = False
 
     cache_db_path: Path = Field(default=Path("data/cache.db"))
+    snapshot_dir: Path = Field(default=Path("data/snapshots"))
 
 
 def load_settings() -> Settings:
