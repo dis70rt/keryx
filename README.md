@@ -1,166 +1,206 @@
 # Keryx
 
-AI-powered LinkedIn outreach orchestration pipeline. Scrape profile. Match angle. Draft connection note + DM. Update Google Sheets.
+Keryx scrapes LinkedIn profiles, runs them through a chain of local AI agents, and spits out personalized cold outreach messages. I built it to automate internship cold-mailing, but the bones work for any LinkedIn outreach.
 
-![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
-![Version](https://img.shields.io/badge/version-0.2.0-blue)
-![Python](https://img.shields.io/badge/python-3.12-blue)
+Named after the Greek word for "herald." The person who actually carried the message.
 
-## Table of Contents
-- [Project Name and Description](#project-name-and-description)
-- [Technology Stack](#technology-stack)
-- [Project Architecture](#project-architecture)
-- [Getting Started](#getting-started)
-- [Project Structure](#project-structure)
-- [Key Features](#key-features)
-- [Development Workflow](#development-workflow)
-- [Coding Standards](#coding-standards)
-- [Testing](#testing)
-- [Contributing](#contributing)
-- [License](#license)
+## What it does
 
-## Project Name and Description
+Feed it LinkedIn URLs through a Google Sheet. Keryx handles the rest:
 
-**Keryx**: Production-grade B2B outreach automation.
-Automate LinkedIn research. Extract profile Data. Cross-reference personal resume/projects context. Generate hyper-personalized copy. Track results in Google Sheets.
+1. **Scrapes** the target's full LinkedIn profile (experience, skills, posts) using Playwright in stealth mode
+2. **Extracts** structured data from the raw page text using a local LLM
+3. **Finds the angle** by comparing your background against theirs (shared college, overlapping tech stack, their recent posts)
+4. **Writes the messages**: a connection note under 300 characters and a follow-up DM around 150 words
+5. **Reviews them** for AI slop, banned phrases, and whether a real person would actually respond
+6. **Pushes results** back to Google Sheets
 
-## Technology Stack
+Everything runs on your machine. No OpenAI. No cloud APIs. Ollama and your GPU.
 
-- **Python**: `3.12`
-- **Dependency Manager**: `uv`
-- **Orchestration**: `LangGraph`, `LangChain`
-- **Web Automation**: `playwright`, `playwright-stealth`
-- **Configuration & Validation**: `pydantic`, `pydantic-settings`
-- **Database Tracking**: `SQLite 3`
-- **Integration**: `gspread`, `oauth2client`
-- **Containerization**: `Docker`, `Docker Compose`
-- **Local LLM**: `Ollama` (Gemma)
+## Architecture
 
-## Project Architecture
+```mermaid
+graph TD
+    A["pipeline.py"] --> B["Google Sheets"]
+    A --> C["LinkedIn Scraper"]
+    C --> D["Cleaner"]
+    D --> E["LangGraph Workflow"]
 
-Pipeline highly decoupled.
+    E --> E1["Extractor"]
+    E1 --> E2["Retriever (RAG)"]
+    E2 --> E3["Memory Recall"]
+    E3 --> E4["Matchmaker"]
+    E4 --> E5["Copywriter"]
+    E5 --> E6["Reviewer"]
 
-1. **State Manager (`src/core/state.py`)**: SQLite cache (`data/cache.db`). Track processed URLs. Resume on crash. Prevent duplicate outreach.
-2. **Scraper (`src/tools/scraper.py`)**: Playwright stealth automation. Fetch raw DOM text (Profile + Company). Bypass anti-bot.
-3. **LangGraph Workflow (`src/core/workflow.py`)**: 
-    - `Extractor`: Parse DOM to structured JSON.
-    - `Matchmaker`: Find best outreach angle. Use resume + projects context.
-    - `Copywriter`: Draft max 300 char connection note + ~150 word DM.
-    - `Reviewer`: Quality check. Reject cliché AI text ("delve", "synergy").
-4. **Google Sheets Controller (`src/tools/sheets.py`)**: Append-only 3-tab system. Batch update `Targets`, `Connection Notes`, `DM Messages`. Avoid rate limits.
-5. **Local LLM Engine**: Docker Compose embeds `Ollama` instance. Auto-pull Gemma model on startup.
+    E6 -->|"Rejected"| E5
+    E6 -->|"Approved"| E7["Memory Store"]
+    E7 --> B
 
-## Getting Started
+    R["ChromaDB"] -.-> E2
+    M["SQLite"] -.-> E3
+    M -.-> E7
 
-One-click setup for macOS/Linux/Windows.
-
-### Prerequisites
-- Docker Desktop
-- LinkedIn session cookies (`data/auth_state.json`) -> create manually or via Playwright script.
-- Google Service Account creds (`data/google_credentials.json`)
-
-### Setup Config
-1. Copy env config:
-   ```bash
-   cp .env.example .env
-   ```
-2. Edit `.env`. API keys stay out of git.
-3. Add Google Service Account JSON to `data/google_credentials.json`.
-4. Create tabs in Google Sheets: `Targets`, `Connection Notes`, `DM Messages`. 
-5. Add target LinkedIn URLs in `Targets` tab (Column A = LinkedIn URL, Column D = Status).
-6. Provide sender context:
-   - `data/resume.tex` (LaTeX format resume)
-   - `data/projects.json` (Key-value map of projects)
-
-### Run Pipeline
-Docker Compose build multi-stage agent + pull Ollama Gemma model auto. 
-
-```bash
-docker compose up --build -d
+    style A fill:#1a1a2e,stroke:#e94560,color:#fff
+    style E fill:#16213e,stroke:#0f3460,color:#fff
+    style E1 fill:#0f3460,stroke:#53a8b6,color:#fff
+    style E2 fill:#0f3460,stroke:#53a8b6,color:#fff
+    style E3 fill:#0f3460,stroke:#53a8b6,color:#fff
+    style E4 fill:#0f3460,stroke:#53a8b6,color:#fff
+    style E5 fill:#0f3460,stroke:#53a8b6,color:#fff
+    style E6 fill:#0f3460,stroke:#53a8b6,color:#fff
+    style E7 fill:#0f3460,stroke:#53a8b6,color:#fff
+    style R fill:#533483,stroke:#e94560,color:#fff
+    style M fill:#533483,stroke:#e94560,color:#fff
 ```
 
-View logs:
+If the Reviewer rejects a draft, it sends specific feedback back to the Copywriter. The Copywriter rewrites based on that feedback, not blindly. Max 2 retries before it takes whatever it has.
+
+## Setup
+
+### What you need
+
+- Python 3.12+
+- [uv](https://docs.astral.sh/uv/)
+- [Ollama](https://ollama.ai/) running locally with a model pulled
+- A Google Cloud service account with Sheets API enabled
+
+### Install
+
 ```bash
-docker compose logs -f agent
+git clone https://github.com/dis70rt/keryx.git
+cd keryx
+uv sync
+uv run playwright install chromium
 ```
 
-Stop pipeline:
+### Configure
+
 ```bash
-docker compose down
+cp .env.example .env
 ```
 
-## Project Structure
+Open `.env` and fill in:
 
-```text
+```env
+SENDER_LINKEDIN_URL=https://www.linkedin.com/in/your-profile/
+LLM_MODEL=gemma4:e2b
+ADMIN_EMAIL=your.email@gmail.com
+GOOGLE_SHEETS_CRED_PATH=data/google_credentials.json
+```
+
+### Your data
+
+Drop these into the `data/` folder:
+
+| File | Purpose |
+|------|---------|
+| `resume.tex` | Your resume. Gets chunked and indexed by the RAG system. |
+| `projects.json` | Your projects. The Copywriter pulls specific details from this. |
+| `google_credentials.json` | Service account key for Google Sheets API. |
+
+### Pull your model
+
+```bash
+ollama pull gemma4:e2b
+```
+
+### First run: LinkedIn login
+
+Keryx needs your LinkedIn session cookies. Run this once:
+
+```bash
+uv run python src/tools/login.py
+```
+
+Browser opens. Log in manually. Session saves to `data/auth_state.json`.
+
+## Usage
+
+### Add targets
+
+In your Google Sheet (defaults to "Keryx Outreach"), go to the "Targets" tab and add rows:
+
+| User Linkedin URL | Company Linkedin URL | Name | Misc Info |
+|---|---|---|---|
+| `https://linkedin.com/in/someone/` | `https://linkedin.com/company/their-co/` | Their Name | Any notes |
+
+### Run
+
+```bash
+uv run pipeline.py
+```
+
+### What you see
+
+```
+┌──────────────────────────────────────────┐
+│ KERYX OUTREACH PIPELINE                  │
+└──────────────────────────────────────────┘
+
+[>] Building RAG index for sender context
+  [OK] RAG index ready (16 chunks)
+[INFO] Found 2 pending targets in Google Sheets
+
+┌──────────────────────────────────────────┐
+│ Processing: linkedin.com/in/someone/     │
+└──────────────────────────────────────────┘
+
+[>] [Extractor] Parsing profiles
+[>] [Retriever] Finding relevant sender context
+  [OK] Retrieved 5 relevant context chunks
+[>] [Matchmaker] Generating angles
+[>] [Copywriter] Drafting messages (revision #0)
+[>] [Reviewer] Quality check
+  [OK] Approved
+  [OK] Hook stored in episodic memory
+
+  [OK] Connection Note (187 chars)
+  [OK] DM Message (115 words)
+```
+
+Results land in the "Connection Notes" and "DM Messages" tabs of the same sheet.
+
+## Project structure
+
+```
 keryx/
-├── pipeline.py                # Main orchestration entrypoint
-├── pyproject.toml             # uv/hatchling deps
-├── Dockerfile                 # Multi-stage image build
-├── docker-compose.yml         # Agent + Ollama infrastructure 
-├── data/                      # Local data volume
-│   ├── resume.tex             # LaTeX resume
-│   ├── projects.json          # Sender projects context
-│   └── cache.db               # SQLite crash-track cache
-└── src/
-    ├── core/                  # Engine logic
-    │   ├── config.py          # Env validation
-    │   ├── llm_client.py      # LLM factory
-    │   ├── models.py          # Pydantic schema
-    │   ├── state.py           # DB Manager
-    │   └── workflow.py        # LangGraph routing
-    ├── tools/                 # Environment interaction
-    │   ├── context.py         # LaTeX/JSON loaders
-    │   ├── scraper.py         # Playwright class
-    │   └── sheets.py          # Google Sheets update class
-    ├── agents/                # AI Nodes
-    └── prompts/               # Prompt mapping
+├── pipeline.py                    # Entry point
+├── src/
+│   ├── agents/
+│   │   ├── profile_extract.py     # Raw text to Pydantic models
+│   │   ├── matchmaker.py          # Finds connection angles
+│   │   ├── copywriter.py          # Writes the messages
+│   │   └── reviewer.py            # Quality gate
+│   ├── core/
+│   │   ├── config.py              # Settings from .env
+│   │   ├── llm_client.py          # Ollama wrapper
+│   │   ├── logger.py              # Rich console output
+│   │   ├── models.py              # TargetProfile, CompanyProfile, etc.
+│   │   ├── state.py               # SQLite state tracking
+│   │   └── workflow.py            # LangGraph graph
+│   ├── prompts/                   # System prompts as markdown
+│   └── tools/                     # Scraper, cleaner, RAG, memory, sheets
+├── data/                          # Resume, projects, credentials
+├── Makefile
+└── pyproject.toml
 ```
 
-## Key Features
+## RAG
 
-- **Fault Tolerance**: SQLite caching prevent double-scrape. Drop connection mid-run? Resume safely auto.
-- **Bot Bypass**: Auto-scroll logic (`human_behavior.py`). Playwright-stealth integration. Non-linear mouse simulation.
-- **Context Injection**: Latex + JSON data merge. LLM knows your exact experience.
-- **Constrained Output**: 2-part message. Strict `< 300 char` note. Pydantic `with_structured_output` validation.
-- **Local Embedded Inference**: Zero API cost. Ollama container bundled.
+Your resume and projects get split into ~500 character chunks and indexed in a local ChromaDB vector store. When the pipeline processes a target, the Retriever queries the store using the target's skills and tech stack and pulls the 3 most relevant chunks. So the Copywriter gets "built a distributed task queue in Go" instead of your entire resume crammed into the context window.
 
-## Development Workflow
+## Episodic memory
 
-1. Branch from `main`.
-2. Sync deps `uv sync`.
-3. Add agent/tool modifications.
-4. Pass Pydantic validations.
-5. Commit atomic units.
+When the Reviewer approves a message, the winning hook gets saved to SQLite, tagged by the target's industry and job title. Next time the Matchmaker sees a similar profile, it pulls those past hooks as few-shot examples. Starts empty. Gets sharper the more you use it.
 
-Commits follow `git commit -m "[action] [feature]"` patterns. E.g., `init architecture`, `added tools and caching`. 
+## Known limitations
 
-## Coding Standards
-
-- Python `3.12` type hints. `str | None` not `Optional[str]`.
-- No sys.path hacks. Use absolute `src.tools.x` imports.
-- Pydantic models for structured outputs.
-- Env vars validated at startup via `pydantic-settings`. Fail fast.
-- No hardcoded absolute path logic. Use `pathlib.Path`.
-
-## Testing
-
-Test target components locally using `uv`:
-
-```bash
-# Validate config parsing
-uv run python -c "from src.core.config import load_settings; load_settings()"
-
-# Test workflow compilation
-uv run python -c "from src.core.workflow import app"
-```
-
-## Contributing
-
-1. PR strict required. 
-2. Retain architecture boundaries. Extractor logic stay in `/agents`. Web interactions stay in `/tools`.
-3. Provide sample data structures. 
-4. Pass `flake8` or `ruff` equivalent checks. 
+- Local LLMs sometimes produce garbage tokens when context gets too heavy. The pipeline catches this and auto-approves the last good draft instead of crashing.
+- Memory starts cold. First batch of targets won't have past hooks to learn from.
+- LinkedIn scraping breaks when LinkedIn changes their DOM. Expect occasional maintenance.
+- Output quality scales with model size. `gemma4:e2b` works. Bigger models write better.
 
 ## License
 
-MIT License. Open source.
+MIT
