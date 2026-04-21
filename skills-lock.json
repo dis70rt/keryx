@@ -1,6 +1,26 @@
 {
   "version": 1,
   "skills": {
+    "ai-agent-development": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "ea8b91b694beaeff2af5723c55bffb4afc20f87af7ac9c69891135aa20d51831"
+    },
+    "ai-agents-architect": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "be16dc0359f7b79de38bcb14b48a665344c4fa15c7784901d9563177e1962e10"
+    },
+    "ai-engineer": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "52fb6090bd4270629dca0c3b5d9dfbc38aa7c928c5fc9892d07fe0359c63130b"
+    },
+    "ai-engineering-toolkit": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "e74c31057362c8203493a2f12e08807c736a49233806b174ed934d3f63038341"
+    },
     "caveman": {
       "source": "JuliusBrussee/caveman",
       "sourceType": "github",
@@ -15,6 +35,16 @@
       "source": "JuliusBrussee/caveman",
       "sourceType": "github",
       "computedHash": "05c97bc3120108acd0b80bdef7fb4fa7c224ba83c8d384ccbc97f92e8a065918"
+    },
+    "humanizer": {
+      "source": "zed-industries/zed",
+      "sourceType": "github",
+      "computedHash": "49b713e902fba8463d005b95c7e04688dcddb4048809e062509d6b49dfc533d6"
+    },
+    "linkedin-outreach": {
+      "source": "TheCraigHewitt/sales-skills",
+      "sourceType": "github",
+      "computedHash": "101a855d610198df5072ff95bf1711951ee7363fa2e49954f18d87efcb1ea781"
     },
     "pydantic": {
       "source": "L-1124/QQMusicApi",

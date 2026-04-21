@@ -1,16 +1,16 @@
 services:
-  agent:
-    build:
-      context: .
-    env_file:
-      - .env
-    environment:
-      - OLLAMA_BASE_URL=http://ollama:11434
-    volumes:
-      - ./data:/app/data
-    restart: unless-stopped
-    depends_on:
-      - ollama
+  # agent:
+  #   build:
+  #     context: .
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     - OLLAMA_BASE_URL=http://ollama:11434
+  #   volumes:
+  #     - ./data:/app/data
+  #   restart: on-failure
+  #   depends_on:
+  #     - ollama
 
   ollama:
     image: ollama/ollama:latest
@@ -18,9 +18,16 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     # Start ollama, wait 5 seconds, pull gemma, then keep container running
     entrypoint: >
-      sh -c "ollama serve & sleep 5 && ollama pull gemma && wait"
+      sh -c "ollama serve & sleep 5 && ollama pull gemma4:e2b && wait"
 
 volumes:
   ollama_data:
