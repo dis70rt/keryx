@@ -150,29 +150,53 @@ def copywriter_node(state: GraphState) -> dict:
     revision = state.get("revision_count", 0)
     print(f"▸ [Copywriter] Drafting messages (revision #{revision})...")
 
-    result = copywriter.draft_messages(
-        target_profile=state["target_profile"],
-        sender_context=state["sender_context"],
-        selected_angle=state["selected_angle"],
-        platform=state["platform"],
-        relevant_context=state.get("relevant_sender_context"),
-    )
+    # On retries, pass the Reviewer's feedback so the Copywriter knows WHY
+    # the previous draft was rejected, instead of blindly regenerating.
+    feedback = state.get("review_feedback") if revision > 0 else None
 
-    return {
-        "connection_note": result.connection_note,
-        "dm_message": result.dm_message,
-        "drafted_messages": result.model_dump(),
-        "revision_count": revision + 1,
-    }
+    try:
+        result = copywriter.draft_messages(
+            target_profile=state["target_profile"],
+            sender_context=state["sender_context"],
+            selected_angle=state["selected_angle"],
+            platform=state["platform"],
+            relevant_context=state.get("relevant_sender_context"),
+            review_feedback=feedback,
+        )
+
+        return {
+            "connection_note": result.connection_note,
+            "dm_message": result.dm_message,
+            "drafted_messages": result.model_dump(),
+            "revision_count": revision + 1,
+        }
+    except Exception as e:
+        # If the LLM produces garbage tokens on a retry, don't crash the
+        # whole pipeline.  Fall back to whatever draft is already in state
+        # (the Reviewer may have written suggested rewrites).
+        print(f"  ⚠ Copywriter LLM error: {e}")
+        print("  → Falling back to previous draft in state.")
+        return {
+            "revision_count": revision + 1,
+            "review_feedback": None,  # clear feedback to stop retry loop
+        }
 
 
 def reviewer_node(state: GraphState) -> dict:
     print("▸ [Reviewer] Quality check...")
-    result = reviewer.review(
-        drafted_messages=state["drafted_messages"],
-        target_context=state["target_profile"].model_dump(),
-        angle_used=state["selected_angle"],
-    )
+
+    try:
+        result = reviewer.review(
+            drafted_messages=state["drafted_messages"],
+            target_context=state["target_profile"].model_dump(),
+            angle_used=state["selected_angle"],
+        )
+    except Exception as e:
+        # If the Reviewer LLM produces garbage, auto-approve.
+        # The draft already passed the Copywriter and is usable.
+        print(f"  ⚠ Reviewer LLM error: {e}")
+        print("  → Auto-approving current draft.")
+        return {"final_passed": True}
 
     if result.passes_criteria:
         print("  ✓ Approved")

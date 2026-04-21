@@ -52,25 +52,11 @@ def run_ai_pipeline(
         "episodic_memory": episodic_memory,
     }
 
-    final_state = None
-    for output in keryx_pipeline.stream(initial_state):
-        final_state = output
+    # Use invoke instead of stream to get the final complete state
+    final_state = keryx_pipeline.invoke(initial_state)
 
-    connection_note = ""
-    dm_message = ""
-
-    if final_state:
-        last_node = list(final_state.values())[-1]
-        connection_note = last_node.get("connection_note", "")
-        dm_message = last_node.get("dm_message", "")
-
-        if not connection_note or not dm_message:
-            for output in keryx_pipeline.stream(initial_state):
-                for node_data in output.values():
-                    if node_data.get("connection_note"):
-                        connection_note = node_data["connection_note"]
-                    if node_data.get("dm_message"):
-                        dm_message = node_data["dm_message"]
+    connection_note = final_state.get("connection_note", "")
+    dm_message = final_state.get("dm_message", "")
 
     return {"connection_note": connection_note, "dm_message": dm_message}
 
@@ -125,14 +111,14 @@ async def process_target(
 
         # ── Algorithmic cleaning (strip LinkedIn UI noise) ─────
         print("▸ Cleaning scraped data...")
-        cleaned_profile = clean_scraped_data(scraped)
+        cleaned_profile = clean_scraped_data(scraped, max_total_chars=6000)
         raw_text = "\n".join(
             [f"--- {k} ---\n{v}" for k, v in cleaned_profile.items()]
         )
 
         raw_company_text = None
         if scraped_company:
-            cleaned_company = clean_scraped_data(scraped_company)
+            cleaned_company = clean_scraped_data(scraped_company, max_total_chars=4000)
             raw_company_text = "\n".join(
                 [f"--- {k} ---\n{v}" for k, v in cleaned_company.items()]
             )

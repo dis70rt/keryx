@@ -22,6 +22,7 @@ class CopywriterAgent:
         selected_angle: Any,
         platform: str = "LinkedIn",
         relevant_context: str | None = None,
+        review_feedback: str | None = None,
     ) -> GeneratedMessages:
         """Draft both a connection note and a DM message in a single LLM call."""
         structured_llm = self.llm.with_structured_output(GeneratedMessages)
@@ -46,6 +47,8 @@ MOST RELEVANT SENDER BACKGROUND:
 SELECTED ANGLE & HOOK:
 {angle_json}
 
+{revision_block}
+
 Generate EXACTLY two outputs:
 1. connection_note: A short, punchy LinkedIn connection request note. STRICT MAX 300 characters. Make it personal and compelling.
 2. dm_message: A longer, highly personalized direct message requesting a backend engineering internship. ~150 words. Reference specific things from the target's profile and your own projects."""),
@@ -67,6 +70,16 @@ Generate EXACTLY two outputs:
             projects = sender_context.projects_context or "No project context provided."
             context_block = f"RESUME:\n{resume}\n\nPROJECTS:\n{projects}"
 
+        # Build revision context if the Reviewer sent feedback
+        if review_feedback:
+            revision_block = (
+                "IMPORTANT — REVISION REQUIRED:\n"
+                f"The reviewer rejected your previous draft because: {review_feedback}\n"
+                "Fix ONLY the issues mentioned above. Keep everything else the same."
+            )
+        else:
+            revision_block = ""
+
         return chain.invoke({
             "platform": platform,
             "target_name": f"{target_profile.first_name} {target_profile.last_name}",
@@ -77,4 +90,5 @@ Generate EXACTLY two outputs:
             "sender_ask": sender_context.ask_type,
             "relevant_context": context_block,
             "angle_json": angle_formatted,
+            "revision_block": revision_block,
         })

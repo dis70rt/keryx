@@ -286,7 +286,7 @@ def clean_section(section_name: str, raw_text: str) -> str:
     return text.strip()
 
 
-def clean_scraped_data(raw_data: dict[str, str]) -> dict[str, str]:
+def clean_scraped_data(raw_data: dict[str, str], max_total_chars: int = 6000) -> dict[str, str]:
     """Clean all sections of a scraped LinkedIn profile or company page.
 
     This is the main entry point.  Call it on the raw dict loaded from
@@ -304,10 +304,9 @@ def clean_scraped_data(raw_data: dict[str, str]) -> dict[str, str]:
         if result:  # drop empty sections
             cleaned[section] = result
 
-    # Step 2: Aggressively truncate to fit within local LLM context limits (~10k chars)
-    # Priority order for keeping data: Main Profile > Experience > Recent Posts > Education > Projects > others
-    max_total_chars = 10000
-    priority_keys = ["Main Profile", "Experience", "Recent Posts", "Education", "Skills", "Projects", "Certifications"]
+    # Step 2: Aggressively truncate to fit within local LLM context limits (~6k chars)
+    # Priority order for keeping data: Main Profile > Experience > About (Company) > Recent Posts > Posts (Company) > others
+    priority_keys = ["Main Profile", "Experience", "About", "Recent Posts", "Posts", "Education", "Skills", "Projects", "Certifications"]
     
     final_cleaned: dict[str, str] = {}
     current_chars = 0
